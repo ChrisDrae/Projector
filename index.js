@@ -29,7 +29,7 @@ function screen(p){
 
 function drawPoint({x,y}){
     ctx.fillStyle = ELEMENT
-    const c = 16
+    const c = 10
     ctx.fillRect(x - (c/2),y - (c/2) ,c,c)
 }
 
@@ -85,6 +85,32 @@ fs = [
     [0,4], [3,7], [2,6], [ 1, 5]
 ]
 
+function rotate_yz({x,y,z}, angel){
+    const c = Math.cos(angel)
+    const s = Math.sin(angel)
+    return {
+        x: x*c - y*s,
+        y: x*s + y*c,
+        z,
+    }
+
+}
+
+function drawRetreatingCube(offset = 0){
+    for(const f of fs){
+        for(i = 0; i < f.length; i++){
+            const a = rect[f[i]]
+            const b = rect[f[(i + 1)%f.length]]
+            drawPoint(screen(project(translate_z(rotate_yz(rotate_xy(a, angle),angle), dz - offset))))
+            drawLine(screen(project((translate_z(rotate_yz(rotate_xy(a, angle), angle), dz - offset)))),
+             (screen(project((translate_z(rotate_yz(rotate_xy(b, angle), angle), dz - offset)))))
+            )
+
+        }
+    }
+}
+
+
 let angle = 0
 
 function frame(){
@@ -92,19 +118,9 @@ function frame(){
     if(dz < 2) dz += 1 * dt
     angle += 2*Math.PI *  dt /10
     clear()
-    for( r of rect){
-        drawPoint(screen(project((translate_z(rotate_xy(r, angle), dz)))))
-    }
-
-    for(const f of fs){
-        for(i = 0; i < f.length; i++){
-            const a = rect[f[i]]
-            const b = rect[f[(i + 1)%f.length]]
-
-            drawLine(screen(project((translate_z(rotate_xy(a, angle), dz)))), (screen(project((translate_z(rotate_xy(b, angle), dz))))))
-
-        }
-    }
+    
+    drawRetreatingCube()
+    drawRetreatingCube(1)
     setTimeout(frame, 1000/FPS)
 }
 
