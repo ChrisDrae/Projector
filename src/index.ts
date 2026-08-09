@@ -7,9 +7,11 @@ if (!(canvasElement instanceof HTMLCanvasElement)) {
     throw new Error("Canvas element with id 'canvas' was not found.");
 }
 
+
 const canvas = canvasElement;
-canvas.width = 800;
-canvas.height = 800;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const ratio = canvas.width/canvas.height
 
 const ELEMENT = "#18d641";
 const BACKGROUND = "#333131";
@@ -37,7 +39,7 @@ function project({ x, y, z }: Vec3): Vec2 {
 
 function toScreenCoordinates(p: Vec2): Vec2 {
     return {
-        x: (p.x + 1) / 2 * canvas.width,
+        x: (p.x + 1) / 2 * canvas.width / ratio,
         y: (1 - (p.y + 1) / 2) * canvas.height,
     };
 }
