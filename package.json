@@ -1,0 +1,26 @@
+{
+  "name": "projector",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChrisDrae/Projector.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ChrisDrae/Projector/issues"
+  },
+  "homepage": "https://github.com/ChrisDrae/Projector#readme",
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
