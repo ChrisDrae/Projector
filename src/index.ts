@@ -1,5 +1,7 @@
 ﻿import { Cube } from "./objects/cube.js";
+import { Particle } from "./objects/particle.js";
 import { RendererEngine, rotateAroundY, rotateAroundZ, translateZ } from "./rendering/renderer.js";
+import {Vec} from "./objects/vectors"
 
 type Vec2 = { x: number; y: number };
 type Vec3 = { x: number; y: number; z: number };
@@ -104,6 +106,8 @@ canvas.addEventListener('mousemove', (e: MouseEvent) => {
     lastMouseY = e.clientY;
 });
 
+const test = new Particle({x: 0, y:0 , z: 0}, 1)
+
 function frame(): void {
     const dt = 1 / FPS;
     if (dz < 2) {
@@ -111,8 +115,12 @@ function frame(): void {
     }
     angle += (2 * Math.PI * dt) / 10;
     r.clear();
-    drawRetreatingCube(Cubos)
-    drawCube(Cubi)
+
+    const random = Math.random() * 0.001
+    test.setPosition(Vec.addVectors(test.position, {x: random,y:random,z:0}))
+    //Test some things
+    r.drawPoint(test.position)
+
     setTimeout(frame, 1000 / FPS);
 }
 
