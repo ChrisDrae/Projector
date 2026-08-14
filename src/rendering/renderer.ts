@@ -47,12 +47,10 @@ export class RendererEngine implements Renderer {
         this.ctx.lineTo(dV.x, dV.y);
         this.ctx.closePath();
         this.ctx.stroke();
-    }
-
-    
+    }  
 }
 
-export function rotateYZ({ x, y, z }: Vec3, angle: number): Vec3 {
+export function rotateAroundZ({ x, y, z }: Vec3, angle: number): Vec3 {
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     return {
@@ -71,7 +69,7 @@ export function translateZ({ x, y, z }: Vec3, dz: number): Vec3 {
 }
 
 
-export function rotateXY({ x, y, z }: Vec3, angle: number): Vec3 {
+export function rotateAroundY({ x, y, z }: Vec3, angle: number): Vec3 {
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     return {
@@ -91,6 +89,6 @@ export function project({ x, y, z }: Vec3): Vec2 {
 export function toScreenCoordinates(p: Vec2, d: [number, number]): Vec2 {
     return {
         x: (p.x + 1) / 2*d[0],
-        y: (1 - (p.y + 1) / 2 * d[1]),
+        y: (1 - (p.y + 1) / 2) * d[1],
     };
 }
