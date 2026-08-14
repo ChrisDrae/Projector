@@ -30,15 +30,15 @@ export class RendererEngine implements Renderer {
     drawPoint({ x, y, z }: Vec3): void {
         /**This Draws the Points Projected from 3D coordinates onto the Canvas with the {x: 0,y: 0} in the center  */
         this.ctx.fillStyle = ELEMENT;
-        const pV = toScreenCoordinates(project({x, y, z}), this.dimensions)
+        const pV = toScreenCoordinates(project(toCamera({x, y, z})), this.dimensions)
         const c = 10;
         this.ctx.fillRect(pV.x - c / 2, pV.y - c / 2, c, c);
     }
 
     drawLine(p: Vec3, d: Vec3): void {
         //Project and Translate
-        const pV = toScreenCoordinates(project(p), this.dimensions)
-        const dV = toScreenCoordinates(project(d), this.dimensions)
+        const pV = toScreenCoordinates(project(toCamera(p)), this.dimensions)
+        const dV = toScreenCoordinates(project(toCamera(d)), this.dimensions)
         //Draw 2D Context Line
         this.ctx.lineWidth = 10;
         this.ctx.strokeStyle = ELEMENT;
@@ -77,6 +77,25 @@ export function rotateAroundY({ x, y, z }: Vec3, angle: number): Vec3 {
         y,
         z: x * s + z * c,
     };
+}
+
+
+export function rotateAroundX({ x, y, z }: Vec3, angle: number): Vec3 {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return {
+        x: x,
+        y: y * c - z * s,
+        z: y * s + z * c,
+    };
+}
+
+//Coordinate Space Logic Functions 
+
+const CAMERA_Z = -1.5
+
+export function toCamera(p: Vec3): Vec3 {
+    return {x: p.x, y: p.y, z: p.z - CAMERA_Z }
 }
 
 export function project({ x, y, z }: Vec3): Vec2 {

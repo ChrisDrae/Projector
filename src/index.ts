@@ -29,28 +29,6 @@ const context: CanvasRenderingContext2D = ctx;
 
 const r = new RendererEngine({ctx: context, background: BACKGROUND, dimensions: [canvas.width, canvas.height]})
 
-const rect: Vec3[] = [
-    { x: 0.25, y: 0.25, z: 0.25 },
-    { x: -0.25, y: -0.25, z: 0.25 },
-    { x: 0.25, y: -0.25, z: 0.25 },
-    { x: -0.25, y: 0.25, z: 0.25 },
-    { x: 0.25, y: 0.25, z: -0.25 },
-    { x: -0.25, y: -0.25, z: -0.25 },
-    { x: 0.25, y: -0.25, z: -0.25 },
-    { x: -0.25, y: 0.25, z: -0.25 },
-];
-
-
-
-const faces: number[][] = [
-    [0, 2, 1, 3],
-    [4, 6, 5, 7],
-    [0, 4],
-    [3, 7],
-    [2, 6],
-    [1, 5],
-];
-
 let angle = 0;
 let dz = 0;
 
@@ -60,8 +38,8 @@ function drawRetreatingCube(cube: Cube, offset = 0): void {
             const a = cube.points[face[i]];
             const b = cube.points[face[(i + 1) % face.length]];
 
-            const aMoving = translateZ(rotateAroundZ(rotateAroundY(a, angle), angle), dz - offset);
-            const bMoving = translateZ(rotateAroundZ(rotateAroundY(b, angle), angle), dz - offset);
+            const aMoving = translateZ(rotateAroundZ(rotateAroundY(a, angle), angle), dz + offset);
+            const bMoving = translateZ(rotateAroundZ(rotateAroundY(b, angle), angle), dz + offset);
             r.drawPoint(aMoving)
             r.drawLine(aMoving, bMoving)
         }
@@ -102,6 +80,29 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     }
 })
 
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+const sensitivity = 0.01;
+
+canvas.addEventListener('mousedown', (e: MouseEvent) => {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+});
+
+window.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+canvas.addEventListener('mousemove', (e: MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    Cubi.rotate({ x: dy * sensitivity, y: dx * sensitivity, z: 0 });
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+});
 
 function frame(): void {
     const dt = 1 / FPS;
@@ -110,8 +111,8 @@ function frame(): void {
     }
     angle += (2 * Math.PI * dt) / 10;
     r.clear();
-    drawRetreatingCube(Cubos, -1)
-    drawRetreatingCube(Cubi, -1)
+    drawRetreatingCube(Cubos)
+    drawCube(Cubi)
     setTimeout(frame, 1000 / FPS);
 }
 
