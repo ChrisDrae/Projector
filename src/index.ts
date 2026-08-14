@@ -9,8 +9,8 @@ if (!(canvasElement instanceof HTMLCanvasElement)) {
 
 
 const canvas = canvasElement;
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+canvas.width = 800;
+canvas.height = 800;
 const ratio = canvas.width/canvas.height
 
 const ELEMENT = "#18d641";
@@ -241,7 +241,6 @@ function frame(): void {
     angle += (2 * Math.PI * dt) / 10;
     clear();
     drawCube(Cubos)
-    drawCube(Cubi)
     setTimeout(frame, 1000 / FPS);
 }
 
