@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"tsc --watch\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "watch": "tsc --watch"
@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/ChrisDrae/Projector#readme",
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "typescript": "^7.0.2",
     "vite": "^8.2.1"
   }
