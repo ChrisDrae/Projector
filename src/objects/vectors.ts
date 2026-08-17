@@ -27,6 +27,14 @@ export class Vec implements Vec3Like{
         this.z = v.z
     }
 
+    scale(s: number){
+        return new Vec({
+            x: this.x * s,
+            y: this.y * s,
+            z: this.z * s
+        })
+    }
+
     add(v: Vec3Like){
         return new Vec({
             x: this.x + v.x,
