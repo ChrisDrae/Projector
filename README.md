@@ -10,3 +10,4 @@ To start the webserver with vite and tsc with watch to recompile on filechanges.
 The goal is to create a typescript library for rendering physics sim, behavior of natural systems. 
 The entry point is index.ts which runs a timeoutLoop within which you can make calls to either the canvas directly or use the renderer class and it's methods 
 by passing it a canvas context. 
+<img width="986" height="940" alt="image" src="https://github.com/user-attachments/assets/1db73af3-1929-44ad-8b45-3720c3a8a154" />
