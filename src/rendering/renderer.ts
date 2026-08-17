@@ -1,3 +1,5 @@
+import { Cube } from "../objects/cube";
+
 export type Vec3 = { x: number; y: number; z: number };
 export type Vec2 = { x: number; y: number}
 
@@ -8,7 +10,7 @@ export interface Renderer {
 }
 
 
-const ELEMENT = "#18d641";
+const ELEMENT = "#d618c6";
 
 
 export class RendererEngine implements Renderer {
@@ -27,28 +29,82 @@ export class RendererEngine implements Renderer {
         this.ctx.fillRect(0, 0, this.dimensions[0], this.dimensions[1]);
     }
 
-    drawPoint({ x, y, z }: Vec3): void {
+    drawPoint({ x, y, z }: Vec3, color: string = ELEMENT): void {
         /**This Draws the Points Projected from 3D coordinates onto the Canvas with the {x: 0,y: 0} in the center  */
-        this.ctx.fillStyle = ELEMENT;
+        this.ctx.fillStyle = color;
         const pV = toScreenCoordinates(project(toCamera({x, y, z})), this.dimensions)
-        const c = 10;
+        const c = 2;
         this.ctx.fillRect(pV.x - c / 2, pV.y - c / 2, c, c);
     }
 
-    drawLine(p: Vec3, d: Vec3): void {
+    drawLine(p: Vec3, d: Vec3, color: string = ELEMENT): void {
         //Project and Translate
         const pV = toScreenCoordinates(project(toCamera(p)), this.dimensions)
         const dV = toScreenCoordinates(project(toCamera(d)), this.dimensions)
         //Draw 2D Context Line
-        this.ctx.lineWidth = 10;
-        this.ctx.strokeStyle = ELEMENT;
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeStyle = color;
         this.ctx.beginPath();
         this.ctx.moveTo(pV.x, pV.y);
         this.ctx.lineTo(dV.x, dV.y);
         this.ctx.closePath();
         this.ctx.stroke();
-    }  
+    }
+    
+    drawYPlane(color: string = ELEMENT){
+        const p = {x: 0 ,y: 0,z: 0};
+        const d = {x: -2 ,y: -2,z: 0};
+        const edge = {x: 1.5 ,y: -1.5,z: 0};
+
+
+        const h1 = {x: 2 ,y: 0,z: -1};
+        const h2 = {x:-2,y:0,z:-1}
+
+        const edge2 = {x: 1.5 ,y: -0.5,z: 0};
+        const edge3 = {x: 1.5 ,y: -0.25,z: 0};
+
+        const edge4 = {x: -1.5 ,y: -0.5,z: 0};
+        const edge5 = {x: -1.5 ,y: -0.25,z: 0};
+         
+        this.drawLine(p, edge2, color)
+        this.drawLine(edge3, p, color)
+        this.drawLine(edge4, p, color)
+        this.drawLine(edge5, p, color)
+
+        //horiztontal
+        this.drawLine(h1, h2, color)
+        
+        this.drawLine(p,d, color)
+        this.drawLine(p, edge, color)
+    }
+    
+    drawCube(cube: Cube, color: string = ELEMENT): void {
+        for(const face of cube.faces){
+            for (let i = 0; i < face.length; i++) {
+                const a = cube.points[face[i]];
+                const b = cube.points[face[(i + 1) % face.length]];
+                this.drawPoint(a, color)
+                this.drawLine(a, b, color);
+            }
+        }
+    }
+
+     drawRetreatingCube(cube: Cube, offset = 0, dz: number, angle: number): void {
+        for (const face of cube.faces) {
+            for (let i = 0; i < face.length; i++) {
+                const a = cube.points[face[i]];
+                const b = cube.points[face[(i + 1) % face.length]];
+    
+                const aMoving = translateZ(rotateAroundZ(rotateAroundY(a, angle), angle), dz + offset);
+                const bMoving = translateZ(rotateAroundZ(rotateAroundY(b, angle), angle), dz + offset);
+                this.drawPoint(aMoving)
+                this.drawLine(aMoving, bMoving)
+            }
+        }
+    }
 }
+
+// Transform Vector Functions
 
 export function rotateAroundZ({ x, y, z }: Vec3, angle: number): Vec3 {
     const c = Math.cos(angle);

@@ -34,93 +34,31 @@ const r = new RendererEngine({ctx: context, background: BACKGROUND, dimensions: 
 let angle = 0;
 let dz = 0;
 
-function drawRetreatingCube(cube: Cube, offset = 0): void {
-    for (const face of cube.faces) {
-        for (let i = 0; i < face.length; i++) {
-            const a = cube.points[face[i]];
-            const b = cube.points[face[(i + 1) % face.length]];
 
-            const aMoving = translateZ(rotateAroundZ(rotateAroundY(a, angle), angle), dz + offset);
-            const bMoving = translateZ(rotateAroundZ(rotateAroundY(b, angle), angle), dz + offset);
-            r.drawPoint(aMoving)
-            r.drawLine(aMoving, bMoving)
-        }
-    }
-}
-
-function drawCube(cube: Cube): void {
-    for(const face of cube.faces){
-        for (let i = 0; i < face.length; i++) {
-            const a = cube.points[face[i]];
-            const b = cube.points[face[(i + 1) % face.length]];
-            r.drawPoint(a)
-            r.drawLine(a, b);
-        }
-    }
-}
-
-const Cubos = new Cube(1)
 const Cubi = new Cube(0.5)
 
 
-window.addEventListener('keydown', (event: KeyboardEvent) => {
-    const step = 0.1;
 
-    switch(event.key){
-        case 'ArrowUp':
-            Cubos.translate({x: 0, y: -step, z: 0});
-            break;
-        case 'ArrowDown':
-            Cubos.translate({x: 0, y: step, z: 0});
-            break;
-        case 'ArrowLeft':
-            Cubos.translate({x: step, y: 0, z: 0});
-            break;
-        case 'ArrowRight':
-            Cubos.translate({x: -step, y: 0, z: 0});
-            break;
-    }
-})
-
-let isDragging = false;
-let lastMouseX = 0;
-let lastMouseY = 0;
-const sensitivity = 0.01;
-
-canvas.addEventListener('mousedown', (e: MouseEvent) => {
-    isDragging = true;
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-});
-
-window.addEventListener('mouseup', () => {
-    isDragging = false;
-});
-
-canvas.addEventListener('mousemove', (e: MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - lastMouseX;
-    const dy = e.clientY - lastMouseY;
-    Cubi.rotate({ x: dy * sensitivity, y: dx * sensitivity, z: 0 });
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-});
 
 const test = new Particle({x: 0, y:0 , z: 0}, 1)
+Cubi.translate({x:0,y:0.5,z:0})
+Cubi.addKeycontrol()
+Cubi.addMouseDragRotate()
 
 function frame(): void {
+    // Calculate differentials
     const dt = 1 / FPS;
     if (dz < 2) {
         dz += 1 * dt;
     }
     angle += (2 * Math.PI * dt) / 10;
     r.clear();
+    // Animation need to be called strictly after clear()
+    
+    r.drawCube(Cubi, "#5952bb")
+    r.drawYPlane("#c2e0ae")
 
-    const random = Math.random() * 0.001
-    test.setPosition(Vec.addVectors(test.position, {x: random,y:random,z:0}))
-    //Test some things
-    r.drawPoint(test.position)
-
+    // Recursion call
     setTimeout(frame, 1000 / FPS);
 }
 
