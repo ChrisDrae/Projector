@@ -16,6 +16,12 @@ The goal is to create a typescript library for rendering physics sim, behavior o
 The entry point is index.ts which runs a timeoutLoop within which you can make calls to either the canvas directly or use the renderer class and it's methods 
 by passing a canvas context to it. 
 
+<div align="center">
+
+# 3D Animation
+
+</div>
+
 The basis for the 3D is this perspective formula:
 
 <div align="center">
