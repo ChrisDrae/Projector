@@ -15,7 +15,7 @@ class Circle implements CircleProps{
         this.center = center
     }
 
-    move(v: Vec3){
+    move(v: Vec){
         const tmp = this.center
         this.center = Vec.addVectors(tmp, v)
     }
@@ -29,6 +29,14 @@ class Circle implements CircleProps{
         const radi = c.radius + this.radius
         const b = Vec.distanceTo(c.center, this.center) < radi 
         return b;
+    }
+
+    isMovingTowards(c: Circle, v: Vec): boolean {
+        const toOther = Vec.subtractVectors(v, c.center);
+        if(Vec.dot(toOther, v) > 0) {
+            return true
+        }
+        return false
     }
 }
 

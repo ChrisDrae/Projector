@@ -2,8 +2,9 @@ import {
   rotateAroundX,
   rotateAroundY,
   rotateAroundZ,
+  Vec3,
 } from "../rendering/renderer.js";
-import { Vec, Vec3Like } from "./vectors.js";
+import { Vec, Vec } from "./vectors.js";
 
 interface Point {
   x: number;
@@ -14,7 +15,7 @@ interface Point {
 export class Cube {
   dimension: number;
   localPoints: Vec[]; // fixed shape, always centered at (0,0,0) — never mutated by translate
-  position: Vec3Like = { x: 0, y: 0, z: 0 }; // world offset — translate() touches this instead
+  position: Vec3 = { x: 0, y: 0, z: 0 }; // world offset — translate() touches this instead
   faces: number[][];
 
   constructor(d: number) {
@@ -40,7 +41,7 @@ export class Cube {
     ];
   }
 
-  translate(v: Vec3Like): void {
+  translate(v: Vec3): void {
     this.position = {
       x: this.position.x + v.x,
       y: this.position.y + v.y,
@@ -48,7 +49,7 @@ export class Cube {
     };
   }
 
-  rotate(delta: Vec3Like): void {
+  rotate(delta: Vec3): void {
     // delta.x/y/z = rotation angle in radians around each axis, applied this call
     this.localPoints = this.localPoints.map((p) => {
       const withZ = rotateAroundZ(p, delta.z);

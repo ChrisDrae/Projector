@@ -54,37 +54,39 @@ Cubi.translate({ x: 0, y: 0.5, z: 0 });
 Cubi.addKeycontrol();
 Cubi.addMouseDragRotate();
 
-const circle = new Circle({ x: 0.1, y: -0.1, z: 0 }, 25);
 
 const circles: Array<Circle> = [];
 
+const Radius = 0.04
+
+const perlin = new PerlinNoise();
+const interval = perlin.noise2D(0.3, 0.1) * 0.1;
+const intervalY = perlin.noise2D(0.3, 1000.4) * 0.1;
+
+let frames = 0;
 for (let i = 0; i < 100; i++) {
   const tmp = i * 0.01;
   circles[i] = new Circle(
-    { x: tmp * Math.random(), y: Math.random() * 0.5, z: 0 },
-    0.07,
+    { x: tmp * interval, y: intervalY  * 0.5, z: 0 },
+    Radius,
   );
 }
-const perlin = new PerlinNoise();
-const interval = perlin.noise2D(0.3, 0) * 0.1;
-const intervalY = perlin.noise2D(0.3, 1000) * 0.1;
-let step = new Vec({ x: interval, y: intervalY, z: 0 });
-
-let frames = 0;
 
 const steps: Array<Vec> = [];
-const amount = 1;
+const amount = 100;
 
 for (let i = 0; i < amount; i++) {
-  const tmp = perlin.noise2D(0.5, 10000 * i) * 0.1;
-  steps[i] = new Vec({ x: tmp, y: Math.random() * 0.02, z: 0 });
+  const rangeX = -0.025 + (Math.random() * 0.05)
+  const rangeY = -0.025 + (Math.random() * 0.05)
+
+  steps[i] = new Vec({ x: rangeX, y: rangeY, z: 0 });
 }
 
 function frame(): void {
   // Calculate differentials
   frames += 1;
   const dt = 1 / FPS;
-  if (dz < 2) {
+  if (dz < 2) { 
     dz += 1 * dt;
   }
   angle += (2 * Math.PI * dt) / 10;
@@ -99,9 +101,14 @@ function frame(): void {
 
     for (const other of circles) {
       if (other.center !== c.center) {
-        console.log("here");
         if (c.isTouchingCircle(other)) {
-          step.scaleSelf(-1);
+          const toOther = Vec.subtractVectors(other.center, c.center); 
+          
+
+          const overlap = (c.radius + other.radius) - Vec.distanceTo(c.center, other.center);
+          if(overlap > 0) {
+            c.move(Vec.scaleVector(Vec.getNormalvector(toOther), -overlap / 2))
+          }
         }
       }
     }
