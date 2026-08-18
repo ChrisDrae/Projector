@@ -19,6 +19,17 @@ class Circle implements CircleProps{
         const tmp = this.center
         this.center = Vec.addVectors(tmp, v)
     }
+
+    isAtPosition(p: Vec3){
+        if(this.center === p) return true;
+        return false
+    }
+
+    isTouchingCircle(c: Circle): boolean{
+        const radi = c.radius + this.radius
+        const b = Vec.distanceTo(c.center, this.center) < radi 
+        return b;
+    }
 }
 
 export default Circle

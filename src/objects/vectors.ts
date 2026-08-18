@@ -21,6 +21,14 @@ export class Vec implements Vec3Like{
         }
     }
 
+    static distanceTo(d: Vec3Like, v: Vec3Like){
+        const dx = v.x - d.x;
+        const dy = v.y - d.y;
+        const dz = v.z - d.z;
+        const distance = Math.sqrt(Math.pow(dx,2) + Math.pow(dy,2) + Math.pow(dz,2));
+        return distance;
+    }
+
     constructor(v: Vec3Like){
         this.x = v.x,
         this.y = v.y,
@@ -35,12 +43,31 @@ export class Vec implements Vec3Like{
         })
     }
 
+    scaleSelf(s: number){
+        this.x = this.x * s,
+        this.y = this.y * s,
+        this.z = this.z *s
+    }
+
     add(v: Vec3Like){
         return new Vec({
             x: this.x + v.x,
             y: this.y + v.y,
             z: this.z + v.z
         })
+    }
+
+    magnitude(): number{
+        const m = Math.sqrt(Math.pow(this.x,2) + Math.pow(this.y,2) + Math.pow(this.z,2));
+        return m;
+    }
+
+    distanceTo(v: Vec3Like){
+        const dx = v.x - this.x;
+        const dy = v.y - this.y;
+        const dz = v.z - this.y;
+        const d = Math.sqrt(Math.pow(dx,2) + Math.pow(dy,2) + Math.pow(dz,2));
+        return d;
     }
 }
 

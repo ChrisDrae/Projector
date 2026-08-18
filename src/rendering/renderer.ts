@@ -16,11 +16,15 @@ export class RendererEngine implements Renderer {
   ctx: CanvasRenderingContext2D;
   background: string;
   dimensions: [number, number];
+  px_perUnit: number
 
   constructor(props: Renderer) {
     ((this.ctx = props.ctx),
       (this.background = props.background),
-      (this.dimensions = props.dimensions));
+      (this.dimensions = props.dimensions),
+      (this.px_perUnit = this.dimensions[0] / 2)
+      );
+      
   }
 
   clear(): void {
@@ -137,7 +141,7 @@ export class RendererEngine implements Renderer {
       project(toCamera(circle.center)),
       this.dimensions,
     );
-    this.ctx.arc(p.x, p.y, circle.radius, 0, 2 * Math.PI, false);
+    this.ctx.arc(p.x, p.y, circle.radius * this.px_perUnit, 0, 2 * Math.PI, false);
     this.ctx.fillStyle = color;
     this.ctx.fill();
     this.ctx.lineWidth = 0.1;
