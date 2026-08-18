@@ -40,4 +40,21 @@ The basis for the 3D is this perspective formula:
 
   ![particles](https://github.com/user-attachments/assets/4c660a08-4b94-4058-b0d3-4bffed4bff41)
 
+# 3D Collision
+
+  ![combo](https://github.com/user-attachments/assets/f1582f38-8829-4316-8bab-f034e5c665cc)
+
+  
+# Gravitation 
+
+  ![combo](https://github.com/user-attachments/assets/c205217d-c5cf-4506-af08-258bfb359b9f)
+
+# Optimisations
+
+Collision check partitioning is the first big optimisation in this project. It reduces the brute force collision check with every other circle object to just all circles sharing the same box. Reducing the former O(n^2)
+drastically. However there is one strong failure mode, when moving the bounding object fast and thus cramming all circles into a corner will inevitably move all circles into the same partition, crashing the FPS. 
+
+## Further Opt. Ideas ->
+"Store position and velocity components in flat Float32Arrays spanning all particles (structure of arrays) rather than per-object vectors, to eliminate pointer dereferencing and improve cache locality."
+
 </div>
