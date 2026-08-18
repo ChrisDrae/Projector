@@ -28,7 +28,7 @@ canvas.width = 800;
 canvas.height = 800;
 const ratio = canvas.width / canvas.height;
 
-const FPS = 60/4;
+const FPS = 60;
 
 const ctx = canvas.getContext("2d");
 
@@ -56,16 +56,14 @@ Cubi.addMouseDragRotate();
 
 const circle = new Circle({ x: 0.1, y: -0.1, z: 0 }, 25);
 
-const circles: Record<string, Circle> = { circle };
-const circlesArray: Array<Circle> = []
+const circles: Array<Circle> = [];
 
 for (let i = 0; i < 100; i++) {
   const tmp = i * 0.01;
-  circles[`circle${i}`] = new Circle(
+  circles[i] = new Circle(
     { x: tmp * Math.random(), y: Math.random() * 0.5, z: 0 },
     0.07,
   );
-  circlesArray.push(circles[`circle${i}`] )
 }
 const perlin = new PerlinNoise();
 const interval = perlin.noise2D(0.3, 0) * 0.1;
@@ -74,15 +72,13 @@ let step = new Vec({ x: interval, y: intervalY, z: 0 });
 
 let frames = 0;
 
-const steps: Record<string, Vec> = { step };
-const amount = 10;
+const steps: Array<Vec> = [];
+const amount = 1;
 
 for (let i = 0; i < amount; i++) {
   const tmp = perlin.noise2D(0.5, 10000 * i) * 0.1;
-  steps[`step${i}`] = new Vec({ x: tmp, y: Math.random() * 0.02, z: 0 });
+  steps[i] = new Vec({ x: tmp, y: Math.random() * 0.02, z: 0 });
 }
-
-
 
 function frame(): void {
   // Calculate differentials
@@ -96,26 +92,24 @@ function frame(): void {
   // Animation need to be called strictly after clear()
 
   for (let i = 0; i < amount; i++) {
-    const step = steps[`step${i}`];
-    const c = circles[`circle${i}`];
-    const coll = r.checkEdge(c.center, c.radius);
-    if(coll.x || coll.y) step.scaleSelf(-1)
-    
-    for(let j = 1 + 1; j < amount; j++){
-      const other = circles[`circle${j}`]
-      const d = Vec.distanceTo(c.center, other.center);
-      const radii = c.radius + other.radius;
-      console.log(i, j, "d=", d, "radii=", radii, "c=", c.center, "o=", other.center);
-      if(c.isTouchingCircle(other)){
-         step.scaleSelf(-1)
-         console.log("touched")
+    const step = steps[i];
+    const c = circles[i];
+    const coll = r.checkEdge(c.center, c.radius * 400);
+    if (coll.x || coll.y) step.scaleSelf(-1);
+
+    for (const other of circles) {
+      if (other.center !== c.center) {
+        console.log("here");
+        if (c.isTouchingCircle(other)) {
+          step.scaleSelf(-1);
+        }
       }
     }
 
-    circles[`circle${i}`].move(step);
-    r.drawCircle(circles[`circle${i}`], "rgb(160, 212, 91)");
+    circles[i].move(step);
+    r.drawCircle(circles[i], "rgb(160, 212, 91)");
   }
-  
+
   // Recursion
   setTimeout(frame, 1000 / FPS);
 }
