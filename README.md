@@ -40,4 +40,8 @@ The basis for the 3D is this perspective formula:
 
   ![particles](https://github.com/user-attachments/assets/4c660a08-4b94-4058-b0d3-4bffed4bff41)
 
+# 3D Collision
+
+  ![combo](https://github.com/user-attachments/assets/70e4f069-3418-4d83-adcd-d4f1a2d8c2b7)
+
 </div>
