@@ -1,3 +1,9 @@
+<div align="center">
+
+# Projector
+
+</div>
+
 This is recreational rendering and sim project that runs on canvas in the browser. 
 
 To run the project for development with hot reloading run:
@@ -12,11 +18,25 @@ by passing a canvas context to it.
 
 The basis for the 3D is this perspective formula:
 
-$x' = \frac{x}{z}, \quad y' = \frac{y}{z}$
+<div align="center">
+  
+## $x' = \frac{x}{z}, \quad y' = \frac{y}{z}$
+
+</div>
 
 <img width="986" height="940" alt="image" src="https://github.com/user-attachments/assets/1db73af3-1929-44ad-8b45-3720c3a8a154" />
-______________________________________________________________________________________________________________________________________
-______________________________________________________________________________________________________________________________________
+________________________________________________________________________________________________________________________________________________________
+________________________________________________________________________________________________________________________________________________________
+
+<div align="center">
+
 
 # Particle Animation and Collision
-![particles](https://github.com/user-attachments/assets/4c660a08-4b94-4058-b0d3-4bffed4bff41)
+
+</div>
+
+<div align="center">
+
+  ![particles](https://github.com/user-attachments/assets/4c660a08-4b94-4058-b0d3-4bffed4bff41)
+
+</div>
