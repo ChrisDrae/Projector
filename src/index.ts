@@ -10,9 +10,10 @@ import {
 import { Vec } from "./objects/vectors";
 import Circle from "./objects/circle.js";
 import PerlinNoise from "./utility/perlin.js";
+import { CollisionSystem } from "./physics/collision.js";
+import { Line } from "./objects/line.js";
+import { SpatialGrid } from "./utility/partitioning.js";
 
-type Vec2 = { x: number; y: number };
-type Vec3 = { x: number; y: number; z: number };
 const center = { x: 0, y: 0, z: 0 };
 
 const canvasElement = document.getElementById("canvas");
@@ -47,79 +48,79 @@ const r = new RendererEngine({
 let angle = 0;
 let dz = 0;
 
-const Cubi = new Cube(0.5);
+const cubi = new Cube(0.5, { x: 0, y: 0.4, z: 0.2 });
 
-const test = new Particle({ x: 0, y: 0, z: 0 }, 1);
-Cubi.translate({ x: 0, y: 0.5, z: 0 });
-Cubi.addKeycontrol();
-Cubi.addMouseDragRotate();
+cubi.addKeycontrol();
+cubi.addMouseDragRotate();
 
 
 const circles: Array<Circle> = [];
 
-const Radius = 0.04
+const Radius = 0.003
 
 const perlin = new PerlinNoise();
-const interval = perlin.noise2D(0.3, 0.1) * 0.1;
-const intervalY = perlin.noise2D(0.3, 1000.4) * 0.1;
 
 let frames = 0;
-for (let i = 0; i < 100; i++) {
-  const tmp = i * 0.01;
-  circles[i] = new Circle(
-    { x: tmp * interval, y: intervalY  * 0.5, z: 0 },
-    Radius,
-  );
+const h = cubi.dimension / 2;
+const amount = 1000;
+
+for (let i = 0; i < amount; i++) {
+    const x = cubi.position.x + (Math.random() * 2 - 1) * (h - Radius);
+    const y = cubi.position.y + (Math.random() * 2 - 1) * (h - Radius);
+    const z = cubi.position.z + (Math.random() * 2 - 1) * (h - Radius);
+    circles[i] = new Circle({ x, y, z }, Radius);
 }
 
 const steps: Array<Vec> = [];
-const amount = 100;
 
 for (let i = 0; i < amount; i++) {
-  const rangeX = -0.025 + (Math.random() * 0.05)
-  const rangeY = -0.025 + (Math.random() * 0.05)
+  const rangeX = -0.0025 + (Math.random() * 0.005)
+  const rangeY = -0.0025 + (Math.random() * 0.005)
+  const rangeZ = -0.01 + (Math.random() * 0.02)
 
-  steps[i] = new Vec({ x: rangeX, y: rangeY, z: 0 });
+  steps[i] = new Vec({ x: rangeX, y: rangeY, z: rangeZ});
 }
+
+const delta = {x:0.005,y: -0.005,z:0.005}
+const test = new Line(2, {x: 0, y: 0.4, z: 0.2}, {x: 0, y: 0, z: -1});
+test.rotate({x:0,y:0,z:0})
+
+let measuredFPS = FPS;
+const aimedMillisecondsPerFrame = 1000 / FPS
+
+const grid = new SpatialGrid(Radius * 2);
+
+const gravitation = {x:0,y: -9.1/10000,z:0}
 
 function frame(): void {
-  // Calculate differentials
-  frames += 1;
-  const dt = 1 / FPS;
-  if (dz < 2) { 
-    dz += 1 * dt;
-  }
-  angle += (2 * Math.PI * dt) / 10;
-  r.clear();
-  // Animation need to be called strictly after clear()
+    const start = performance.now()
+    frames += 1;
+    const dt = 1 / measuredFPS;
+    r.clear();
 
-  for (let i = 0; i < amount; i++) {
-    const step = steps[i];
-    const c = circles[i];
-    const coll = r.checkEdge(c.center, c.radius * 400);
-    if (coll.x || coll.y) step.scaleSelf(-1);
+    for (const c of circles) {
+        c.applyForce({ x: 0, y: -9.8 * c.mass, z: 0 });
+        c.integrate(dt);
 
-    for (const other of circles) {
-      if (other.center !== c.center) {
-        if (c.isTouchingCircle(other)) {
-          const toOther = Vec.subtractVectors(other.center, c.center); 
-          
-
-          const overlap = (c.radius + other.radius) - Vec.distanceTo(c.center, other.center);
-          if(overlap > 0) {
-            c.move(Vec.scaleVector(Vec.getNormalvector(toOther), -overlap / 2))
-          }
-        }
-      }
     }
 
-    circles[i].move(step);
-    r.drawCircle(circles[i], "rgb(160, 212, 91)");
-  }
+    CollisionSystem.resolveAll(circles, cubi, grid, 0.3);
 
-  // Recursion
-  setTimeout(frame, 1000 / FPS);
+    for (const c of circles) {
+        c.resizeToDistanceZ();
+        r.drawCircle(c, "rgb(160, 212, 91)");
+    }
+
+    r.drawCube(cubi);
+    r.drawYPlane();
+
+    const end = performance.now()
+    const timeElapsed = (end - start) 
+    measuredFPS = 1000 / timeElapsed
+    console.log(measuredFPS)
+    requestAnimationFrame(frame);
 }
 
+
 r.clear();
-setTimeout(frame, 1000 / FPS);
+requestAnimationFrame(frame);

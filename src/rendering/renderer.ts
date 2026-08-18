@@ -1,5 +1,7 @@
 import Circle from "../objects/circle";
 import { Cube } from "../objects/cube";
+import { Line } from "../objects/line";
+import { Vec } from "../objects/vectors";
 
 export type Vec3 = { x: number; y: number; z: number };
 export type Vec2 = { x: number; y: number };
@@ -113,6 +115,12 @@ export class RendererEngine implements Renderer {
         this.drawLine(a, b, color);
       }
     }
+  }
+
+  drawLineFromLine(line: Line, color: string = ELEMENT){
+    const anker = line.position;
+    const endPoint = Vec.addVectors( anker, Vec.scaleVector(line.direction, line.length ));
+    this.drawLine(anker, endPoint, color)
   }
 
   drawRetreatingCube(cube: Cube, offset = 0, dz: number, angle: number): void {
