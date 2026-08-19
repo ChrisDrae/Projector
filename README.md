@@ -4,7 +4,7 @@
 
 </div>
 
-This is recreational rendering and sim project that runs on canvas in the browser. 
+This is a recreational coding physics sim project that runs on canvas in the browser. 
 
 To run the project for development with hot reloading run:
 ```
@@ -52,9 +52,6 @@ The basis for the 3D is this perspective formula:
 # Optimisations
 
 Collision check partitioning is the first big optimisation in this project. It reduces the brute force collision check with every other circle object to just all circles sharing the same box. Reducing the former O(n^2)
-drastically. However there is one strong failure mode, when moving the bounding object fast and thus cramming all circles into a corner will inevitably move all circles into the same partition, crashing the FPS. 
-
-## Further Opt. Ideas ->
-"Store position and velocity components in flat Float32Arrays spanning all particles (structure of arrays) rather than per-object vectors, to eliminate pointer dereferencing and improve cache locality."
+drastically. 
 
 </div>
