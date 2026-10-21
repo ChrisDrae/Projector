@@ -1,8 +1,8 @@
 // collision.ts
 import Circle from "../objects/circle.js";
 import { Cube } from "../objects/cube.js";
-import { Vec } from "../objects/vectors.js";
-import type { Vec3 } from "../rendering/renderer.js";
+import { Vec } from "../math/vec.js";
+import type { Vec3 } from "../math/vec3.js";
 import { SpatialGrid } from "../utility/partitioning.js";
 
 export class CollisionSystem {

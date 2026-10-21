@@ -1,5 +1,5 @@
-import type { Vec3 } from "../rendering/renderer";
-import { Vec } from "./vectors";
+import { Vec } from "../math/vec.js";
+import type { Vec3 } from "../math/vec3.js";
 
 interface CircleProps {
     radius:  number,

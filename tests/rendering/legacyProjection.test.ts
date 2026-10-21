@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { project, toCamera, toScreenCoordinates } from "../../src/rendering/renderer.js";
+import { project, toCamera, toScreenCoordinates } from "../../src/legacy.js";
 
 // Snapshot of the original x/z, y/z pipeline (camera at z = -1.5, 800x800 canvas).
 // The new camera/projection pipeline must keep reproducing these numbers.

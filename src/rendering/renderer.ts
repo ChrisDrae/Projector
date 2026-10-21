@@ -1,10 +1,16 @@
-import Circle from "../objects/circle";
-import { Cube } from "../objects/cube";
-import { Line } from "../objects/line";
-import { Vec } from "../objects/vectors";
-
-export type Vec3 = { x: number; y: number; z: number };
-export type Vec2 = { x: number; y: number };
+import {
+  project,
+  rotateAroundY,
+  rotateAroundZ,
+  toCamera,
+  toScreenCoordinates,
+  translateZ,
+} from "../legacy.js";
+import { Vec } from "../math/vec.js";
+import type { Vec3 } from "../math/vec3.js";
+import type Circle from "../objects/circle.js";
+import type { Cube } from "../objects/cube.js";
+import type { Line } from "../objects/line.js";
 
 export interface Renderer {
   ctx: CanvasRenderingContext2D;
@@ -165,66 +171,4 @@ export class RendererEngine implements Renderer {
       y: s.y - radius < 0 || s.y + radius > h,
     };
   }
-}
-
-// Transform Vector Functions
-
-export function rotateAroundZ({ x, y, z }: Vec3, angle: number): Vec3 {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return {
-    x: x * c - y * s,
-    y: x * s + y * c,
-    z,
-  };
-}
-
-export function translateZ({ x, y, z }: Vec3, dz: number): Vec3 {
-  return {
-    x,
-    y,
-    z: z + dz,
-  };
-}
-
-export function rotateAroundY({ x, y, z }: Vec3, angle: number): Vec3 {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return {
-    x: x * c - z * s,
-    y,
-    z: x * s + z * c,
-  };
-}
-
-export function rotateAroundX({ x, y, z }: Vec3, angle: number): Vec3 {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return {
-    x: x,
-    y: y * c - z * s,
-    z: y * s + z * c,
-  };
-}
-
-//Coordinate Space Logic Functions
-
-const CAMERA_Z = -1.5;
-
-export function toCamera(p: Vec3): Vec3 {
-  return { x: p.x, y: p.y, z: p.z - CAMERA_Z };
-}
-
-export function project({ x, y, z }: Vec3): Vec2 {
-  return {
-    x: x / z,
-    y: y / z,
-  };
-}
-
-export function toScreenCoordinates(p: Vec2, d: [number, number]): Vec2 {
-  return {
-    x: ((p.x + 1) / 2) * d[0],
-    y: (1 - (p.y + 1) / 2) * d[1],
-  };
 }

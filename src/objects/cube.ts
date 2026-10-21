@@ -1,11 +1,7 @@
-import {
-  rotateAroundX,
-  rotateAroundY,
-  rotateAroundZ,
-  type Vec3,
-} from "../rendering/renderer.js";
+import { rotateAroundX, rotateAroundY, rotateAroundZ } from "../legacy.js";
+import { Vec } from "../math/vec.js";
+import type { Vec3 } from "../math/vec3.js";
 import Circle from "./circle.js";
-import { Vec } from "./vectors.js";
 
 export class Cube {
   dimension: number;
