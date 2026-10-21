@@ -67,6 +67,11 @@ export { BoxContainer, PlaneCollider, SphereCollider } from "./physics/colliders
 export type { BoxContainerOptions, ColliderMaterial, SphereColliderOptions } from "./physics/colliders.js";
 export { HashGrid } from "./physics/broadphase.js";
 export type { BroadphaseMode, BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
+export { Attractor, Drag, VectorField } from "./physics/forces.js";
+export type { FieldFunction, VectorFieldOptions } from "./physics/forces.js";
+export { NBodyGravity, kineticEnergy } from "./physics/nbody.js";
+export { DistanceConstraintSet, SpringSet } from "./physics/constraints.js";
+export type { DistanceConstraintOptions, SpringOptions } from "./physics/constraints.js";
 export { solveContacts } from "./physics/contacts.js";
 export { integratePositions, integrateVelocities } from "./physics/integrate.js";
 
