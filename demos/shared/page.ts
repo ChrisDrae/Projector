@@ -56,5 +56,7 @@ export function startDemo<T>(
     hud.flush();
   });
   sim.start();
+  // For poking at the running demo from the browser console
+  Object.assign(globalThis, { demo: { sim, demo, hud } });
   return { sim, hud, demo };
 }

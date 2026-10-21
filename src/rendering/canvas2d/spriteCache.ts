@@ -31,8 +31,14 @@ export function defaultCanvasFactory(): CanvasFactory | null {
  */
 export class SpriteCache implements SpriteSource {
   maxImages: number;
-  /** Images rendered since the cache was made (cost shows up here, not per frame). */
+  /**
+   * Most new images rendered per frame. Beyond it a sphere is drawn as a plain circle for a frame or
+   * two, so a burst of new sprites (lights moving past many spheres) never stalls a frame.
+   */
+  maxRendersPerFrame: number = 6;
+  /** Images rendered since the cache was made. */
   rendered: number = 0;
+  private renderedThisFrame: number = 0;
   private readonly factory: CanvasFactory;
   private readonly images: Map<number, SpriteCanvas> = new Map();
   private generation: number = 0;
@@ -52,6 +58,8 @@ export class SpriteCache implements SpriteSource {
     const key = id * SIZES.length + level;
     const cached = this.images.get(key);
     if (cached) return cached;
+    if (this.renderedThisFrame >= this.maxRendersPerFrame) return null;
+    this.renderedThisFrame++;
     if (this.images.size >= this.maxImages) this.images.clear();
     const image = this.render(params, SIZES[level]);
     if (image) this.images.set(key, image);
@@ -60,6 +68,11 @@ export class SpriteCache implements SpriteSource {
 
   clear(): void {
     this.images.clear();
+  }
+
+  /** Resets the per-frame render budget (the backend calls this before drawing). */
+  startFrame(): void {
+    this.renderedThisFrame = 0;
   }
 
   private render(params: SpriteParams, size: number): SpriteCanvas | null {

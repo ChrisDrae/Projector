@@ -79,13 +79,28 @@ function lightBin(lx: number, ly: number, lz: number): number {
   return e * AZIMUTHS + a;
 }
 
-/** 5-bit level of a value in [0, max]. */
-function level31(x: number, max: number): number {
-  return x <= 0 ? 0 : x >= max ? 31 : Math.round((x / max) * 31);
+/** 4-bit level of a value in [0, 1]. */
+function level15(x: number): number {
+  return x <= 0 ? 0 : x >= 1 ? 15 : Math.round(x * 15);
 }
 
 /** Light strength on sprites goes up to 2 (over-bright), the uniform part up to 1. */
 const SPRITE_LIGHT_MAX = 2;
+/** Sprite keys: light key (hue 12 bits + strength 4 bits) below the color and direction. */
+const LIGHT_KEYS = 65536;
+
+/**
+ * Key of the strongest light on a sprite: its hue (4 bits per channel, scaled to the brightest
+ * channel) and its strength (4 bits on a square-root scale, fine where it's dim). Light moving past a
+ * sphere mostly changes the strength, so splitting it from the hue keeps sprites shared.
+ */
+function spriteLightKey(r: number, g: number, b: number): number {
+  const m = Math.max(r, g, b);
+  if (!(m > 1e-4)) return 0;
+  const hue = (level15(r / m) << 8) | (level15(g / m) << 4) | level15(b / m);
+  const strength = Math.max(1, level15(Math.sqrt(Math.min(m, SPRITE_LIGHT_MAX) / SPRITE_LIGHT_MAX)));
+  return (hue << 4) | strength;
+}
 
 /**
  * What a CustomNode draws with. Everything is in world space; the context transforms to view space,
@@ -515,10 +530,9 @@ export class SoftwareEmitter implements EmitContext {
       l.sphere(vx, vy, vz, r, s);
 
       if (sprites && sr >= minSprite) {
-        const lightKey =
-          (level31(s.lightR, SPRITE_LIGHT_MAX) << 10) | (level31(s.lightG, SPRITE_LIGHT_MAX) << 5) | level31(s.lightB, SPRITE_LIGHT_MAX);
-        const key = (c * AZIMUTHS * ELEVATIONS + lightBin(s.lx, s.ly, s.lz)) * 32768 + lightKey;
-        const ambientKey = (level31(s.ambientR, 1) << 10) | (level31(s.ambientG, 1) << 5) | level31(s.ambientB, 1);
+        const lightKey = spriteLightKey(s.lightR, s.lightG, s.lightB);
+        const key = (c * AZIMUTHS * ELEVATIONS + lightBin(s.lx, s.ly, s.lz)) * LIGHT_KEYS + lightKey;
+        const ambientKey = (level15(s.ambientR) << 8) | (level15(s.ambientG) << 4) | level15(s.ambientB);
         let byAmbient = lit.sprites.get(key);
         if (!byAmbient) {
           byAmbient = new Map();
@@ -559,23 +573,25 @@ export class SoftwareEmitter implements EmitContext {
   /** A new sprite from its quantized key: every sphere with the same key gets the same image. */
   private makeSprite(lit: LitCloud, color: number, key: number, lightKey: number, ambientKey: number): number {
     const table = this.queue.sprites;
-    const bin = Math.floor(key / 32768) % (AZIMUTHS * ELEVATIONS);
+    const bin = Math.floor(key / LIGHT_KEYS) % (AZIMUTHS * ELEVATIONS);
     const e = Math.floor(bin / AZIMUTHS);
     const a = bin % AZIMUTHS;
     const lz = -((e / (ELEVATIONS - 1)) * 2 - 1);
     const ring = Math.sqrt(Math.max(0, 1 - lz * lz));
     const phi = (a / AZIMUTHS) * 2 * Math.PI;
-    const light = (k: number): number => (k / 31) * SPRITE_LIGHT_MAX;
+    // Strength back from its square-root level, times the hue
+    const strength = ((lightKey & 15) / 15) ** 2 * SPRITE_LIGHT_MAX;
+    const hue = lightKey >> 4;
     return table.add({
       baseR: lit.base[color * 3],
       baseG: lit.base[color * 3 + 1],
       baseB: lit.base[color * 3 + 2],
-      ambientR: ((ambientKey >> 10) & 31) / 31,
-      ambientG: ((ambientKey >> 5) & 31) / 31,
-      ambientB: (ambientKey & 31) / 31,
-      lightR: light((lightKey >> 10) & 31),
-      lightG: light((lightKey >> 5) & 31),
-      lightB: light(lightKey & 31),
+      ambientR: ((ambientKey >> 8) & 15) / 15,
+      ambientG: ((ambientKey >> 4) & 15) / 15,
+      ambientB: (ambientKey & 15) / 15,
+      lightR: (((hue >> 8) & 15) / 15) * strength,
+      lightG: (((hue >> 4) & 15) / 15) * strength,
+      lightB: ((hue & 15) / 15) * strength,
       lx: ring * Math.cos(phi),
       ly: ring * Math.sin(phi),
       lz,

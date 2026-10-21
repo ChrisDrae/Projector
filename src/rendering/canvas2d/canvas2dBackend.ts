@@ -80,6 +80,7 @@ export class Canvas2DBackend implements RenderBackend {
     ctx.fillStyle = scene.background;
     ctx.fillRect(0, 0, this.width, this.height);
     this.rasterizer.reset();
+    this.sprites?.startFrame();
 
     this.stats.batches = this.rasterizer.draw(ctx, queue);
     this.stats.primitives = queue.count;

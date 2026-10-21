@@ -151,18 +151,22 @@ export class Rasterizer {
     const params = queue.sprites.get(id);
     const generation = queue.sprites.generation;
     if (this.sprites) {
-      let drawn = 0;
+      // Spheres whose image isn't ready are drawn as circles in one path below
+      let missing = 0;
       for (let i = start; i < end; i++) {
-        const o = offset[order[i]];
+        const p = order[i];
+        const o = offset[p];
         const r = c[o + 2];
         const image = this.sprites.get(id, params, 2 * r * this.pixelRatio, generation);
-        if (!image) break;
+        if (!image) {
+          order[start + missing++] = p;
+          continue;
+        }
         ctx.drawImage(image, c[o] - r, c[o + 1] - r, 2 * r, 2 * r);
         this.drawCalls++;
-        drawn++;
       }
-      if (drawn === end - start) return;
-      start += drawn;
+      if (missing === 0) return;
+      end = start + missing;
     }
     spriteAverage(params, average);
     const fill = quantizedCss(quantize(average.r, average.g, average.b));
