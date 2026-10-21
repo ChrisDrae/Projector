@@ -5,11 +5,13 @@ import {
   HemisphereLight,
   Mesh,
   MeshObject,
+  ParticleGroup,
   PointLight,
   SimObject,
   SpotLight,
   type Material,
   type Simulation,
+  type SphereCloud,
 } from "projector";
 import type { DemoConfig } from "../shared/config.js";
 
@@ -30,6 +32,8 @@ export interface LightingDemo {
   /** Materials of the curved objects, whose shading can be switched. */
   curved: Material[];
   shiny: Material[];
+  /** The ring of floating balls (sprite shaded). */
+  balls: SphereCloud;
   setFog(on: boolean): void;
   setShadows(on: boolean): void;
 }
@@ -128,8 +132,37 @@ export function setup(sim: Simulation): LightingDemo {
     sim.add(new Lamp("#3cc8ff", 1.6, 1.3, -0.7, Math.PI)),
   ].map((l) => l.light);
 
+  // A slowly turning ring of floating balls, drawn as lit sprites
+  const BALLS = 48;
+  const ring = sim.add(
+    new ParticleGroup({
+      radius: 0.09,
+      collides: false,
+      palette: ["#f1eeee", "#e0a23a", "#4fb0e8"],
+      colorIndex: (i) => i % 3,
+      shading: "sprite",
+      specular: 0.5,
+      castShadow: true,
+    }),
+  );
+  ring.spawn(BALLS, () => {});
+  let turn = 0;
+  const placeRing = (): void => {
+    const bodies = sim.world.bodies;
+    for (let k = 0; k < ring.count; k++) {
+      const i = bodies.indexOf(ring.idAt(k));
+      const a = (k / BALLS) * 2 * Math.PI + turn;
+      bodies.pos[i * 3] = Math.cos(a) * 2.5;
+      bodies.pos[i * 3 + 1] = 0.35 + 0.35 * (1 + Math.sin(a * 3 + turn * 2));
+      bodies.pos[i * 3 + 2] = Math.sin(a) * 2.5 + 0.3;
+    }
+  };
+  placeRing();
+
   sim.onUpdate((dt) => {
     box.transform.rotateWorld(0, dt * 0.6, 0);
+    turn += dt * 0.15;
+    placeRing();
   });
 
   return {
@@ -138,6 +171,7 @@ export function setup(sim: Simulation): LightingDemo {
     lamps,
     curved,
     shiny,
+    balls: ring.node as SphereCloud,
     setFog(on) {
       scene.fog = on ? { color: BACKGROUND, near: 3, far: 9 } : null;
     },

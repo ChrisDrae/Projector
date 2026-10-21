@@ -3,6 +3,7 @@ import type { Scene } from "../../scene/scene.js";
 import type { RenderBackend, RenderStats } from "../backend.js";
 import { SoftwareEmitter } from "../software/emit.js";
 import { Rasterizer } from "./rasterizer.js";
+import { SpriteCache, defaultCanvasFactory, type CanvasFactory } from "./spriteCache.js";
 
 export interface Canvas2DBackendOptions {
   /** Device pixels per CSS pixel. Defaults to window.devicePixelRatio. */
@@ -12,6 +13,8 @@ export interface Canvas2DBackendOptions {
   /** Initial size in CSS pixels when not auto-resizing. Defaults to the canvas attributes. */
   width?: number;
   height?: number;
+  /** Where lit sphere sprites are rendered; defaults to OffscreenCanvas or canvas elements. */
+  canvasFactory?: CanvasFactory;
 }
 
 /** Renders a Scene onto a 2D canvas through the software pipeline, in a handful of batched draw calls. */
@@ -21,6 +24,8 @@ export class Canvas2DBackend implements RenderBackend {
   readonly ctx: CanvasRenderingContext2D;
   readonly emitter: SoftwareEmitter = new SoftwareEmitter();
   readonly rasterizer: Rasterizer = new Rasterizer();
+  /** Images of lit sphere sprites, null when the environment can't make canvases. */
+  readonly sprites: SpriteCache | null;
   readonly stats: RenderStats = { primitives: 0, batches: 0, culled: 0, ms: 0 };
   /** Size in CSS pixels. */
   width: number = 0;
@@ -34,6 +39,9 @@ export class Canvas2DBackend implements RenderBackend {
     this.canvas = canvas;
     this.ctx = ctx;
     this.pixelRatio = options.pixelRatio ?? (globalThis.devicePixelRatio || 1);
+    const factory = options.canvasFactory ?? defaultCanvasFactory();
+    this.sprites = factory ? new SpriteCache(factory) : null;
+    this.rasterizer.sprites = this.sprites;
 
     if (options.autoResize ?? true) {
       this.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height);
@@ -56,6 +64,7 @@ export class Canvas2DBackend implements RenderBackend {
     this.canvas.width = Math.round(width * pixelRatio);
     this.canvas.height = Math.round(height * pixelRatio);
     this.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    this.rasterizer.pixelRatio = pixelRatio;
     this.rasterizer.reset();
   }
 

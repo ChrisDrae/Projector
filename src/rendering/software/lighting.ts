@@ -6,6 +6,20 @@ import { colorOf } from "../color.js";
 /** Lights beyond this many are ignored. */
 export const MAX_LIGHTS = 8;
 
+/** Light on a sphere, split into its strongest light and a uniform rest (see Lighting.sphere). */
+export interface SphereLight {
+  ambientR: number;
+  ambientG: number;
+  ambientB: number;
+  lightR: number;
+  lightG: number;
+  lightB: number;
+  lx: number;
+  ly: number;
+  lz: number;
+  phase: number;
+}
+
 const DIRECTIONAL = 0;
 const POINT = 1;
 const SPOT = 2;
@@ -57,6 +71,7 @@ export class Lighting {
   private readonly cosOuter: Float64Array = new Float64Array(MAX_LIGHTS);
   private readonly cosInner: Float64Array = new Float64Array(MAX_LIGHTS);
   private readonly intensity: Float64Array = new Float64Array(MAX_LIGHTS);
+  private readonly sphereTmp: Float64Array = new Float64Array(4 * MAX_LIGHTS);
 
   update(scene: Scene, v: Mat4): void {
     const amb = scene.ambient;
@@ -256,6 +271,99 @@ export class Lighting {
     this.r = r;
     this.g = g;
     this.b = b;
+  }
+
+  /**
+   * Light on a sphere centered at p (view space), split for sprites: the strongest light (color times
+   * strength in lightR/G/B, direction toward it in lx/ly/lz) and everything else as one uniform term
+   * (ambientR/G/B: ambient, the hemisphere's middle, the other lights by how much of the visible side
+   * they reach). `phase` is the part of the visible side the strongest light reaches (0..1).
+   */
+  sphere(px: number, py: number, pz: number, out: SphereLight): void {
+    let ar = this.ambR;
+    let ag = this.ambG;
+    let ab = this.ambB;
+    if (this.hemi) {
+      ar += (this.skyR + this.groundR) / 2;
+      ag += (this.skyG + this.groundG) / 2;
+      ab += (this.skyB + this.groundB) / 2;
+    }
+    const len = Math.hypot(px, py, pz) || 1;
+    const vx = -px / len;
+    const vy = -py / len;
+    const vz = -pz / len;
+    const tmp = this.sphereTmp;
+    let best = -1;
+    let bestWeight = 0;
+    for (let l = 0; l < this.count; l++) {
+      const t = this.type[l];
+      let lx: number;
+      let ly: number;
+      let lz: number;
+      let att = 1;
+      if (t === DIRECTIONAL) {
+        lx = this.dir[l * 3];
+        ly = this.dir[l * 3 + 1];
+        lz = this.dir[l * 3 + 2];
+      } else {
+        const dx = this.pos[l * 3] - px;
+        const dy = this.pos[l * 3 + 1] - py;
+        const dz = this.pos[l * 3 + 2] - pz;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
+        lx = dx / d;
+        ly = dy / d;
+        lz = dz / d;
+        att = attenuation(d, this.range[l], this.decay[l]);
+        if (t === SPOT) {
+          const c = -(lx * this.dir[l * 3] + ly * this.dir[l * 3 + 1] + lz * this.dir[l * 3 + 2]);
+          const outer = this.cosOuter[l];
+          const inner = this.cosInner[l];
+          if (c <= outer) att = 0;
+          else if (c < inner) {
+            const s = (c - outer) / (inner - outer);
+            att *= s * s * (3 - 2 * s);
+          }
+        }
+      }
+      tmp[l * 4] = lx;
+      tmp[l * 4 + 1] = ly;
+      tmp[l * 4 + 2] = lz;
+      tmp[l * 4 + 3] = att;
+      const weight = att * (this.color[l * 3] + this.color[l * 3 + 1] + this.color[l * 3 + 2]);
+      if (weight > bestWeight) {
+        bestWeight = weight;
+        best = l;
+      }
+    }
+    for (let l = 0; l < this.count; l++) {
+      if (l === best) continue;
+      const phase = (1 + tmp[l * 4] * vx + tmp[l * 4 + 1] * vy + tmp[l * 4 + 2] * vz) / 2;
+      const k = tmp[l * 4 + 3] * phase;
+      ar += this.color[l * 3] * k;
+      ag += this.color[l * 3 + 1] * k;
+      ab += this.color[l * 3 + 2] * k;
+    }
+    out.ambientR = ar;
+    out.ambientG = ag;
+    out.ambientB = ab;
+    if (best < 0) {
+      out.lightR = 0;
+      out.lightG = 0;
+      out.lightB = 0;
+      out.lx = 0;
+      out.ly = 0;
+      out.lz = -1;
+      out.phase = 0;
+      return;
+    }
+    const att = tmp[best * 4 + 3];
+    out.lightR = this.color[best * 3] * att;
+    out.lightG = this.color[best * 3 + 1] * att;
+    out.lightB = this.color[best * 3 + 2] * att;
+    out.lx = tmp[best * 4];
+    out.ly = tmp[best * 4 + 1];
+    out.lz = tmp[best * 4 + 2];
+    out.phase = (1 + out.lx * vx + out.ly * vy + out.lz * vz) / 2;
   }
 
   /** 0 (no fog) to 1 (fully fogged) at a view depth. */

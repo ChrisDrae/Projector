@@ -1,6 +1,7 @@
 import { Layer } from "../../scene/nodes.js";
+import { SpriteTable } from "./sprites.js";
 
-export const PrimitiveKind = { Polygon: 0, Line: 1, Circle: 2, Point: 3, GradientPolygon: 4 } as const;
+export const PrimitiveKind = { Polygon: 0, Line: 1, Circle: 2, Point: 3, GradientPolygon: 4, Sprite: 5 } as const;
 export type PrimitiveKind = (typeof PrimitiveKind)[keyof typeof PrimitiveKind];
 
 export interface Style {
@@ -35,8 +36,10 @@ export class StyleTable {
   }
 }
 
-const LAYER_UNIT = 2 ** 28;
-const DEPTH_UNIT = 2 ** 12;
+// Sort keys are 32 bits. Depth-sorted layers: layer (3 bits) | far-to-near depth (16) | kind (3) | style (10).
+// Other layers: layer (3) | kind (3) | style (26). So there can be up to 8 layers and 8 primitive kinds.
+const LAYER_UNIT = 2 ** 29;
+const DEPTH_UNIT = 2 ** 13;
 const KIND_UNIT_SORTED = 2 ** 10;
 const KIND_UNIT_UNSORTED = 2 ** 26;
 
@@ -58,13 +61,15 @@ export class RenderQueue {
   size: Uint16Array;
   /**
    * Screen-space coordinates, per kind: polygon x,y pairs; line x0,y0,x1,y1; circle x,y,r; point x,y,size;
-   * gradient polygon x,y pairs, then the gradient line x0,y0,x1,y1 and its two fine color keys.
+   * gradient polygon x,y pairs, then the gradient line x0,y0,x1,y1 and its two fine color keys;
+   * sprite x,y,r (its sprite id is the style).
    */
   coords: Float32Array;
   coordCount: number = 0;
   /** Primitive indices in draw order, valid after sort(). */
   order: Uint32Array;
   readonly styles: StyleTable = new StyleTable();
+  readonly sprites: SpriteTable = new SpriteTable();
   /** Bit mask of layers sorted back to front. */
   depthSortedLayers: number = 1 << Layer.World;
   private keys: Uint32Array;
@@ -147,6 +152,15 @@ export class RenderQueue {
 
   pushCircle(layer: number, style: number, depth: number, x: number, y: number, r: number): void {
     const o = this.add(PrimitiveKind.Circle, layer, style, depth, 3, 1);
+    const c = this.coords;
+    c[o] = x;
+    c[o + 1] = y;
+    c[o + 2] = r;
+  }
+
+  /** A lit sphere image (see SpriteTable) centered at x, y with radius r. */
+  pushSprite(layer: number, sprite: number, depth: number, x: number, y: number, r: number): void {
+    const o = this.add(PrimitiveKind.Sprite, layer, sprite, depth, 3, 1);
     const c = this.coords;
     c[o] = x;
     c[o + 1] = y;

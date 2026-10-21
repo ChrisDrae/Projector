@@ -6,6 +6,7 @@ const { sim, hud, demo } = startDemo(config, setup);
 hud.select("curved shading", ["smooth", "flat"] as const, "smooth", (s) => {
   for (const m of demo.curved) m.shading = s;
 });
+hud.select("balls", ["sprite", "lit", "flat"] as const, "sprite", (s) => (demo.balls.shading = s));
 hud.select("shadows", ["on", "off"] as const, "on", (v) => demo.setShadows(v === "on"));
 hud.select("fog", ["off", "on"] as const, "off", (v) => demo.setFog(v === "on"));
 hud.slider("spot light", 0, 10, 0.5, demo.spot.intensity, (v) => (demo.spot.intensity = v));

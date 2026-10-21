@@ -8,7 +8,7 @@ import type { Scene } from "../../scene/scene.js";
 import { colorOf, mix, parseColor, shade, toCss, type RGB } from "../color.js";
 import { clipPolygonNear, clipSegmentNear } from "./clip.js";
 import { triangleGradient } from "./gradient.js";
-import { Lighting, fineCss, quantize, quantizeFine, quantizedCss } from "./lighting.js";
+import { Lighting, fineCss, quantize, quantizeFine, quantizedCss, type SphereLight } from "./lighting.js";
 import { ShadowProjector } from "./shadows.js";
 import { createProjection, updateProjection, type ProjectionParams } from "./projection.js";
 import { RenderQueue } from "./renderQueue.js";
@@ -52,6 +52,40 @@ interface CloudStyles {
   key: string;
   ids: Int32Array;
 }
+
+/** Per lit sphere cloud: palette colors and the sprites made for it so far. */
+interface LitCloud {
+  palette: string[];
+  base: Float64Array;
+  specular: number;
+  shininess: number;
+  /** Sprite ids by key: (color, light direction, light strength), then the ambient term. */
+  sprites: Map<number, Map<number, number>>;
+  generation: number;
+}
+
+/** The sprite table starts over beyond this many sprites, so long runs with moving lights stay bounded. */
+const MAX_SPRITES = 20000;
+/** Light directions are quantized for sprites: 24 around the view axis times 8 from front to back. */
+const AZIMUTHS = 24;
+const ELEVATIONS = 8;
+
+/** Bin of a unit view-space direction toward a light. */
+function lightBin(lx: number, ly: number, lz: number): number {
+  const e = Math.round(((1 - lz) / 2) * (ELEVATIONS - 1));
+  let a = Math.round((Math.atan2(ly, lx) / (2 * Math.PI)) * AZIMUTHS);
+  if (a < 0) a += AZIMUTHS;
+  if (a >= AZIMUTHS) a = 0;
+  return e * AZIMUTHS + a;
+}
+
+/** 5-bit level of a value in [0, max]. */
+function level31(x: number, max: number): number {
+  return x <= 0 ? 0 : x >= max ? 31 : Math.round((x / max) * 31);
+}
+
+/** Light strength on sprites goes up to 2 (over-bright), the uniform part up to 1. */
+const SPRITE_LIGHT_MAX = 2;
 
 /**
  * What a CustomNode draws with. Everything is in world space; the context transforms to view space,
@@ -117,6 +151,19 @@ export class SoftwareEmitter implements EmitContext {
   private readonly cloudStyles: WeakMap<object, CloudStyles> = new WeakMap();
   private readonly lineFogStyles: WeakMap<LineSet, CloudStyles> = new WeakMap();
   private readonly luts: Map<string, Int32Array> = new Map();
+  private readonly litClouds: WeakMap<SphereCloud, LitCloud> = new WeakMap();
+  private readonly sphereLight: SphereLight = {
+    ambientR: 0,
+    ambientG: 0,
+    ambientB: 0,
+    lightR: 0,
+    lightG: 0,
+    lightB: 0,
+    lx: 0,
+    ly: 0,
+    lz: -1,
+    phase: 0,
+  };
 
   constructor(queue: RenderQueue = new RenderQueue()) {
     this.queue = queue;
@@ -335,6 +382,10 @@ export class SoftwareEmitter implements EmitContext {
   }
 
   emitSpheres(node: SphereCloud, camera: PerspectiveCamera): void {
+    if (node.shading !== "flat") {
+      this.emitLitSpheres(node, camera);
+      return;
+    }
     const src = node.source;
     const n = src.count;
     const pos = src.pos;
@@ -403,6 +454,174 @@ export class SoftwareEmitter implements EmitContext {
       }
       q.pushCircle(node.layer, ids[c * levels + level], z, cloud[j * 4], cloud[j * 4 + 1], cloud[j * 4 + 2]);
     }
+  }
+
+  /**
+   * Spheres colored by the scene lights. "lit": one quantized color per sphere (batched like flat
+   * spheres). "sprite": spheres big enough on screen become a sprite: its key is the palette color, the
+   * direction to the strongest light (quantized into AZIMUTHS x ELEVATIONS bins), that light's strength
+   * and the uniform rest, each quantized to 5 bits per channel, so nearby spheres share images.
+   */
+  private emitLitSpheres(node: SphereCloud, camera: PerspectiveCamera): void {
+    const src = node.source;
+    const n = src.count;
+    const pos = src.pos;
+    const rad = src.radius;
+    const v = camera.viewMatrix;
+    const p = this.proj;
+    const near = p.near;
+    const minR = node.minPixelRadius;
+    const only = node.group ?? -1;
+    const groups = only >= 0 ? (src.group ?? null) : null;
+    const sprites = node.shading === "sprite";
+    const minSprite = node.spriteMinRadius;
+    const lit = this.litCloudFor(node);
+    const base = lit.base;
+    const pal = node.palette.length;
+    const colorIndex = node.colorIndex;
+    const l = this.lighting;
+    const s = this.sphereLight;
+    const q = this.queue;
+    const lut = this.plainLut();
+    const fog = l.fog;
+
+    for (let i = 0; i < n; i++) {
+      if (groups !== null && groups[i] !== only) continue;
+      const r = rad[i];
+      if (!(r > 0)) continue;
+      const x = pos[i * 3];
+      const y = pos[i * 3 + 1];
+      const z = pos[i * 3 + 2];
+      const vz = v[2] * x + v[6] * y + v[10] * z + v[14];
+      if (vz - r <= near) {
+        this.culled++;
+        continue;
+      }
+      const vx = v[0] * x + v[4] * y + v[8] * z + v[12];
+      const vy = v[1] * x + v[5] * y + v[9] * z + v[13];
+      let sr = (p.sy * r) / vz;
+      if (sr < minR) sr = minR;
+      const px = p.cx + (p.sx * vx) / vz;
+      const py = p.cy - (p.sy * vy) / vz;
+      if (px + sr < 0 || px - sr > p.width || py + sr < 0 || py - sr > p.height) {
+        this.culled++;
+        continue;
+      }
+      let c = 0;
+      if (colorIndex) {
+        c = colorIndex(i) % pal;
+        if (!(c >= 0)) c = 0;
+      }
+      l.sphere(vx, vy, vz, s);
+
+      if (sprites && sr >= minSprite) {
+        const lightKey =
+          (level31(s.lightR, SPRITE_LIGHT_MAX) << 10) | (level31(s.lightG, SPRITE_LIGHT_MAX) << 5) | level31(s.lightB, SPRITE_LIGHT_MAX);
+        const key = (c * AZIMUTHS * ELEVATIONS + lightBin(s.lx, s.ly, s.lz)) * 32768 + lightKey;
+        const ambientKey = (level31(s.ambientR, 1) << 10) | (level31(s.ambientG, 1) << 5) | level31(s.ambientB, 1);
+        let byAmbient = lit.sprites.get(key);
+        if (!byAmbient) {
+          byAmbient = new Map();
+          lit.sprites.set(key, byAmbient);
+        }
+        let id = byAmbient.get(ambientKey);
+        if (id === undefined) {
+          id = this.makeSprite(lit, c, key, lightKey, ambientKey);
+          byAmbient.set(ambientKey, id);
+        }
+        q.pushSprite(node.layer, id, vz, px, py, sr);
+        continue;
+      }
+
+      // One color for the whole sphere: the uniform light plus the visible share of the strongest light
+      const br = base[c * 3];
+      const bg = base[c * 3 + 1];
+      const bb = base[c * 3 + 2];
+      let cr = br * (s.ambientR + s.lightR * s.phase);
+      let cg = bg * (s.ambientG + s.lightG * s.phase);
+      let cb = bb * (s.ambientB + s.lightB * s.phase);
+      if (fog) {
+        const f = l.fogFactor(vz);
+        cr += (l.fogR - cr) * f;
+        cg += (l.fogG - cg) * f;
+        cb += (l.fogB - cb) * f;
+      }
+      const qk = quantize(cr, cg, cb);
+      let style = lut[qk];
+      if (style < 0) {
+        style = q.styles.intern(quantizedCss(qk));
+        lut[qk] = style;
+      }
+      q.pushCircle(node.layer, style, vz, px, py, sr);
+    }
+  }
+
+  /** A new sprite from its quantized key: every sphere with the same key gets the same image. */
+  private makeSprite(lit: LitCloud, color: number, key: number, lightKey: number, ambientKey: number): number {
+    const table = this.queue.sprites;
+    const bin = Math.floor(key / 32768) % (AZIMUTHS * ELEVATIONS);
+    const e = Math.floor(bin / AZIMUTHS);
+    const a = bin % AZIMUTHS;
+    const lz = -((e / (ELEVATIONS - 1)) * 2 - 1);
+    const ring = Math.sqrt(Math.max(0, 1 - lz * lz));
+    const phi = (a / AZIMUTHS) * 2 * Math.PI;
+    const light = (k: number): number => (k / 31) * SPRITE_LIGHT_MAX;
+    return table.add({
+      baseR: lit.base[color * 3],
+      baseG: lit.base[color * 3 + 1],
+      baseB: lit.base[color * 3 + 2],
+      ambientR: ((ambientKey >> 10) & 31) / 31,
+      ambientG: ((ambientKey >> 5) & 31) / 31,
+      ambientB: (ambientKey & 31) / 31,
+      lightR: light((lightKey >> 10) & 31),
+      lightG: light((lightKey >> 5) & 31),
+      lightB: light(lightKey & 31),
+      lx: ring * Math.cos(phi),
+      ly: ring * Math.sin(phi),
+      lz,
+      specular: lit.specular,
+      shininess: lit.shininess,
+    });
+  }
+
+  private litCloudFor(node: SphereCloud): LitCloud {
+    const table = this.queue.sprites;
+    if (table.size > MAX_SPRITES) table.clear();
+    let lit = this.litClouds.get(node);
+    const palette = node.palette;
+    let same =
+      lit !== undefined &&
+      lit.palette.length === palette.length &&
+      lit.specular === node.specular &&
+      lit.shininess === node.shininess;
+    for (let k = 0; same && k < palette.length; k++) same = lit!.palette[k] === palette[k];
+    if (!lit || !same) {
+      const base = new Float64Array(palette.length * 3);
+      palette.forEach((css, k) => {
+        const c = colorOf(css);
+        base[k * 3] = c.r / 255;
+        base[k * 3 + 1] = c.g / 255;
+        base[k * 3 + 2] = c.b / 255;
+      });
+      lit = { palette: [...palette], base, specular: node.specular, shininess: node.shininess, sprites: new Map(), generation: table.generation };
+      this.litClouds.set(node, lit);
+    }
+    if (lit.generation !== table.generation) {
+      lit.sprites.clear();
+      lit.generation = table.generation;
+    }
+    return lit;
+  }
+
+  /** The color table of plain fills (no outline, opaque). */
+  private plainLut(): Int32Array {
+    const key = "null|1|1";
+    let lut = this.luts.get(key);
+    if (!lut) {
+      lut = new Int32Array(32768).fill(-1);
+      this.luts.set(key, lut);
+    }
+    return lut;
   }
 
   emitPoints(node: PointCloud, camera: PerspectiveCamera): void {

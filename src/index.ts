@@ -40,6 +40,7 @@ export type {
   PointSource,
   SphereCloudOptions,
   SortMode,
+  SphereShading,
   SphereSource,
 } from "./scene/nodes.js";
 export { Scene } from "./scene/scene.js";
@@ -52,9 +53,14 @@ export type { RGB } from "./rendering/color.js";
 export { Canvas2DBackend } from "./rendering/canvas2d/canvas2dBackend.js";
 export type { Canvas2DBackendOptions } from "./rendering/canvas2d/canvas2dBackend.js";
 export { Rasterizer } from "./rendering/canvas2d/rasterizer.js";
-export type { Canvas2DLike } from "./rendering/canvas2d/rasterizer.js";
+export type { Canvas2DLike, SpriteSource } from "./rendering/canvas2d/rasterizer.js";
+export { SpriteCache, defaultCanvasFactory } from "./rendering/canvas2d/spriteCache.js";
+export type { CanvasFactory, SpriteCanvas } from "./rendering/canvas2d/spriteCache.js";
+export { SpriteTable, renderSprite } from "./rendering/software/sprites.js";
+export type { SpriteParams } from "./rendering/software/sprites.js";
 export { SoftwareEmitter, SHADE_LEVELS } from "./rendering/software/emit.js";
 export { Lighting, MAX_LIGHTS } from "./rendering/software/lighting.js";
+export type { SphereLight } from "./rendering/software/lighting.js";
 export { ShadowProjector } from "./rendering/software/shadows.js";
 export type { EmitContext } from "./rendering/software/emit.js";
 export { PrimitiveKind, RenderQueue, StyleTable } from "./rendering/software/renderQueue.js";

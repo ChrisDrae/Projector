@@ -34,6 +34,11 @@ export class RecordingContext implements Canvas2DLike {
     this.calls.push("stroke");
   }
   gradients: Array<{ line: number[]; stops: Array<[number, string]> }> = [];
+  images: number[][] = [];
+  drawImage(_image: CanvasImageSource, dx: number, dy: number, dw: number, dh: number): void {
+    this.images.push([dx, dy, dw, dh]);
+    this.calls.push("drawImage");
+  }
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient {
     const g = { line: [x0, y0, x1, y1], stops: [] as Array<[number, string]> };
     this.gradients.push(g);

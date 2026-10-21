@@ -1,6 +1,6 @@
 import type { Vec3 } from "../../math/vec3.js";
 import type { BodyId } from "../../physics/types.js";
-import { PointCloud, SphereCloud } from "../../scene/nodes.js";
+import { PointCloud, SphereCloud, type SphereShading } from "../../scene/nodes.js";
 import { SimObject } from "../simObject.js";
 import type { Simulation } from "../simulation.js";
 
@@ -27,6 +27,10 @@ export interface ParticleGroupOptions {
   layer?: number;
   /** Spheres cast planar shadows onto shadow receivers (like a Ground). */
   castShadow?: boolean;
+  /** "flat" (default), "lit" or "sprite": see SphereShading. */
+  shading?: SphereShading;
+  specular?: number;
+  shininess?: number;
 }
 
 export interface ParticleOptions {
@@ -147,6 +151,9 @@ export class ParticleGroup extends SimObject {
           layer: o.layer,
           group: this.group,
           castShadow: o.castShadow,
+          shading: o.shading,
+          specular: o.specular,
+          shininess: o.shininess,
         }),
       );
     } else if (render === "points") {

@@ -7,7 +7,7 @@ import type { Mesh } from "./mesh.js";
 /**
  * Render layers are drawn in order. Only the World layer is depth sorted (painter's algorithm);
  * the others are grouped by style for the fewest draw calls. Shadow holds projected shadows: above
- * the floor, below everything standing on it.
+ * the floor, below everything standing on it. Layers are numbers 0-7, so custom ones can sit between.
  */
 export const Layer = { Background: 0, Shadow: 1, World: 2, Overlay: 3 } as const;
 
@@ -63,7 +63,21 @@ export interface SphereCloudOptions {
   group?: number | null;
   /** Cast planar shadows (an ellipse per sphere) onto shadow receivers. */
   castShadow?: boolean;
+  /** See SphereShading. Default "flat". */
+  shading?: SphereShading;
+  /** Below this on-screen radius (CSS pixels) "sprite" spheres are drawn as "lit" circles. Default 2.5. */
+  spriteMinRadius?: number;
+  /** Highlight strength (0..1) and tightness of "sprite" spheres. Defaults 0.3 and 24. */
+  specular?: number;
+  shininess?: number;
 }
+
+/**
+ * How spheres are colored. "flat": their color, faded with depth (depthCue). "lit": one color per sphere
+ * from the scene lights and fog. "sprite": a shaded ball image per sphere with its own light and shadow
+ * side and a highlight; small ones fall back to "lit". Lit and sprite spheres ignore depthCue.
+ */
+export type SphereShading = "flat" | "lit" | "sprite";
 
 /** Many spheres drawn as screen-space circles, sized by perspective. */
 export class SphereCloud {
@@ -77,6 +91,10 @@ export class SphereCloud {
   /** Draw only the spheres of this group; null draws all. */
   group: number | null;
   castShadow: boolean;
+  shading: SphereShading;
+  spriteMinRadius: number;
+  specular: number;
+  shininess: number;
   visible: boolean = true;
   layer: number;
 
@@ -90,6 +108,10 @@ export class SphereCloud {
     this.layer = options.layer ?? Layer.World;
     this.group = options.group ?? null;
     this.castShadow = options.castShadow ?? false;
+    this.shading = options.shading ?? "flat";
+    this.spriteMinRadius = options.spriteMinRadius ?? 2.5;
+    this.specular = options.specular ?? 0.3;
+    this.shininess = options.shininess ?? 24;
   }
 }
 

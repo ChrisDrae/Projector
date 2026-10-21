@@ -1,5 +1,14 @@
-import { fineCss } from "../software/lighting.js";
+import { fineCss, quantize, quantizedCss } from "../software/lighting.js";
 import { PrimitiveKind, type RenderQueue, type Style } from "../software/renderQueue.js";
+import { spriteAverage, type SpriteParams } from "../software/sprites.js";
+
+/** Turns sprite ids into images, e.g. a SpriteCache. */
+export interface SpriteSource {
+  /** An image of the sprite at least `pixels` device pixels across, or null to draw a plain circle. */
+  get(id: number, params: SpriteParams, pixels: number, generation: number): CanvasImageSource | null;
+}
+
+const average = { r: 0, g: 0, b: 0 };
 
 /** The subset of CanvasRenderingContext2D the rasterizer uses (handy for tests and offscreen canvases). */
 export interface Canvas2DLike {
@@ -16,6 +25,7 @@ export interface Canvas2DLike {
   fill(): void;
   stroke(): void;
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient;
+  drawImage(image: CanvasImageSource, dx: number, dy: number, dw: number, dh: number): void;
 }
 
 const TAU = Math.PI * 2;
@@ -25,8 +35,12 @@ const TAU = Math.PI * 2;
  * state is only touched when it actually changes between batches.
  */
 export class Rasterizer {
-  /** Draw calls of the last draw(): one per batch, plus one per gradient polygon. */
+  /** Draw calls of the last draw(): one per batch, plus one per gradient polygon and sprite. */
   drawCalls: number = 0;
+  /** Images for sprites; without them sprites are drawn as plain circles of their average color. */
+  sprites: SpriteSource | null = null;
+  /** Device pixels per CSS pixel, to pick sprite resolutions. */
+  pixelRatio: number = 1;
   private fill: string | null = null;
   /** CSS of fine color keys (gradient stops), made once each. */
   private readonly css: Array<string | undefined> = [];
@@ -46,7 +60,8 @@ export class Rasterizer {
   draw(ctx: Canvas2DLike, queue: RenderQueue): number {
     this.drawCalls = 0;
     queue.forEachBatch((kind, style, start, end) => {
-      this.drawBatch(ctx, queue, kind, queue.styles.get(style), start, end);
+      if (kind === PrimitiveKind.Sprite) this.drawSprites(ctx, queue, style, start, end);
+      else this.drawBatch(ctx, queue, kind, queue.styles.get(style), start, end);
     });
     return this.drawCalls;
   }
@@ -123,6 +138,47 @@ export class Rasterizer {
     }
     // The fill style is a gradient now: the next batch must set its color again
     this.fill = null;
+  }
+
+  /** A run of one sprite: an image per sphere, or one path of circles in its average color. */
+  private drawSprites(ctx: Canvas2DLike, queue: RenderQueue, id: number, start: number, end: number): void {
+    if (this.alpha !== 1) {
+      ctx.globalAlpha = 1;
+      this.alpha = 1;
+    }
+    const { order, offset } = queue;
+    const c = queue.coords;
+    const params = queue.sprites.get(id);
+    const generation = queue.sprites.generation;
+    if (this.sprites) {
+      let drawn = 0;
+      for (let i = start; i < end; i++) {
+        const o = offset[order[i]];
+        const r = c[o + 2];
+        const image = this.sprites.get(id, params, 2 * r * this.pixelRatio, generation);
+        if (!image) break;
+        ctx.drawImage(image, c[o] - r, c[o + 1] - r, 2 * r, 2 * r);
+        this.drawCalls++;
+        drawn++;
+      }
+      if (drawn === end - start) return;
+      start += drawn;
+    }
+    spriteAverage(params, average);
+    const fill = quantizedCss(quantize(average.r, average.g, average.b));
+    if (fill !== this.fill) {
+      ctx.fillStyle = fill;
+      this.fill = fill;
+    }
+    ctx.beginPath();
+    for (let i = start; i < end; i++) {
+      const o = offset[order[i]];
+      const r = c[o + 2];
+      ctx.moveTo(c[o] + r, c[o + 1]);
+      ctx.arc(c[o], c[o + 1], r, 0, TAU);
+    }
+    ctx.fill();
+    this.drawCalls++;
   }
 
   private cssOf(key: number): string {

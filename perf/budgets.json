@@ -69,13 +69,13 @@
     },
     "lighting": {
       "frames": 120,
-      "primitives": 2061,
-      "batches": 1380,
-      "beginPaths": 1380,
-      "pathCommands": 6385,
+      "primitives": 2157,
+      "batches": 1429,
+      "beginPaths": 1429,
+      "pathCommands": 6961,
       "pairs": 0,
       "candidateTests": 0,
-      "bodies": 0,
+      "bodies": 48,
       "finite": true
     }
   }

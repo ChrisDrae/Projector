@@ -74,6 +74,10 @@ export class CountingContext implements Canvas2DLike {
   createLinearGradient(): CanvasGradient {
     return GRADIENT;
   }
+
+  drawImage(): void {
+    this.pathCommands++;
+  }
 }
 
 const GRADIENT = { addColorStop(): void {} } as unknown as CanvasGradient;
