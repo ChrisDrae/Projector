@@ -70,12 +70,20 @@ new PointerDrag(demo.canvas, (dx, dy) => {
   drag.y += dy;
 });
 
+/** Drops bodies all on one point: the worst case for a grid broadphase (issue #1). */
+function pile(count: number): void {
+  for (let i = 0; i < count; i++) world.addBody({ position: box.transform.position, radius: RADIUS, mass: 1 });
+}
+
 let shake = 0;
 const hud = demo.hud;
 const buttons = hud.row();
 hud.button("+1000 spheres", () => spawn(1000), buttons);
-hud.button("Shake", () => (shake = 0.6), buttons);
-hud.button("Reset", reset, buttons);
+hud.button("Pile 2000", () => pile(2000), buttons);
+const more = hud.row();
+hud.button("Shake", () => (shake = 0.6), more);
+hud.button("Reset", reset, more);
+hud.select("broadphase", ["accurate", "sandbox"] as const, world.broadphase.mode, (m) => (world.broadphase.mode = m));
 hud.slider("time scale", 0.1, 2, 0.05, world.timeScale, (v) => (world.timeScale = v));
 hud.slider("restitution", 0, 1, 0.05, world.restitution, (v) => (world.restitution = v));
 
@@ -123,5 +131,8 @@ demo.start((dt) => {
   hud.stat("substeps", s.substeps);
   hud.stat("physics ms", s.stepMs);
   hud.stat("contact pairs", s.pairs);
-  hud.stat("max bucket", world.broadphase.stats.maxBucket);
+  const b = world.broadphase.stats;
+  hud.stat("max bucket", b.maxBucket);
+  hud.stat("crowded buckets", b.overloadedBuckets);
+  hud.stat("skipped (sandbox)", b.droppedBodies);
 });

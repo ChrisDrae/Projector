@@ -11,6 +11,14 @@ export default defineConfig(({ mode }) => ({
     alias: { projector: r("./src/index.ts") },
   },
   base: mode === "demos" ? "./" : "/",
+  server: {
+    watch: {
+      // Native file events get dropped on Windows when files change in quick succession
+      usePolling: true,
+      interval: 100,
+      ignored: ["**/node_modules/**", "**/dist/**", "**/dist-demos/**", "**/.git/**"],
+    },
+  },
   build:
     mode === "demos"
       ? {

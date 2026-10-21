@@ -2,81 +2,125 @@ import { nextPow2 } from "../math/scalar.js";
 import type { BodyStore } from "./bodyStore.js";
 import { BodyFlags } from "./types.js";
 
+export type BroadphaseMode = "accurate" | "sandbox";
+
 export interface BroadphaseOptions {
+  /**
+   * "accurate" (default) finds every overlapping pair; crowded buckets are sorted and swept so they stay
+   * cheap. "sandbox" additionally caps the bodies per bucket and skips the excess (rotating which ones each
+   * step): bounded cost no matter what, at the price of some missed collisions.
+   */
+  mode?: BroadphaseMode;
   /** Grid cell size. Default: just over the largest collision diameter. */
   cellSize?: number;
+  /** Bucket size above which a bucket is sorted and swept instead of scanned. Default 24. */
+  overloadThreshold?: number;
+  /** Sandbox mode: most bodies kept per bucket. Default 16. */
+  maxPerCell?: number;
+  /** Most pairs per body before pairs are dropped (a memory and time safety valve). Default 64 (accurate), 16 (sandbox). */
+  maxPairsPerBody?: number;
 }
 
 export interface BroadphaseStats {
   cellSize: number;
   /** Most bodies sharing one hash bucket. */
   maxBucket: number;
+  /** Buckets above the overload threshold (sorted in accurate mode, capped in sandbox mode). */
+  overloadedBuckets: number;
   /** Narrow-phase distance checks performed. */
   candidateTests: number;
   pairs: number;
+  /** Sandbox mode: bodies skipped for body-body collisions this step. */
+  droppedBodies: number;
+  /** Pairs not reported because the pair budget was exhausted. */
+  droppedPairs: number;
+  /** True when the pair budget was exhausted. */
+  saturated: boolean;
 }
+
+/** Contact pairs are reported a little before they touch, so contacts forming during solver iterations are caught. */
+const MARGIN = 0.1;
 
 function hash(ix: number, iy: number, iz: number, mask: number): number {
   return (Math.imul(ix, 92837111) ^ Math.imul(iy, 689287499) ^ Math.imul(iz, 283923481)) & mask;
 }
 
 /**
- * Uniform grid broadphase over the SoA body store. Cells are hashed into a power-of-two table and filled
- * with a counting sort, so a rebuild is O(n) with no strings, Maps or per-frame allocations. Every body
- * looks at the 27 cells around it and each candidate pair is reported exactly once.
+ * Uniform grid broadphase over the SoA body store (issue #1). Cells are hashed into a power-of-two table
+ * and filled with a counting sort, so a rebuild is O(n) with no strings, Maps or per-frame allocations.
+ * Every body looks at the 27 cells around it and each candidate pair is reported exactly once.
+ *
+ * A plain grid degrades to O(n^2) when many bodies share a bucket. That happens with mixed sizes (cells
+ * are sized by the largest body, so many small ones fit in one cell), with hash collisions, and during
+ * pile-ups. Crowded buckets are therefore sorted along x and searched with a binary search and a sweep
+ * limited by the largest radius in that bucket, which keeps them exact and cheap. Sandbox mode caps them.
  */
 export class HashGrid {
+  mode: BroadphaseMode;
+  overloadThreshold: number;
+  maxPerCell: number;
+  maxPairsPerBody: number;
   cellSize: number = 0;
   tableSize: number = 0;
-  /** Bucket b holds entries[cellStart[b] .. cellStart[b + 1]). */
+  /** Bucket b holds entries[cellStart[b] .. cellEnd[b]). */
   cellStart: Int32Array = new Int32Array(1);
+  cellEnd: Int32Array = new Int32Array(0);
   entries: Int32Array = new Int32Array(0);
   /** Bucket of each body, -1 if it does not collide. */
   bodyHash: Int32Array = new Int32Array(0);
   /** Body index pairs (i < j) found by the last findPairs(). */
   pairs: Int32Array = new Int32Array(0);
   pairCount: number = 0;
-  readonly stats: BroadphaseStats = { cellSize: 0, maxBucket: 0, candidateTests: 0, pairs: 0 };
-  protected readonly fixedCellSize: number | null;
+  readonly stats: BroadphaseStats = {
+    cellSize: 0,
+    maxBucket: 0,
+    overloadedBuckets: 0,
+    candidateTests: 0,
+    pairs: 0,
+    droppedBodies: 0,
+    droppedPairs: 0,
+    saturated: false,
+  };
+  private readonly fixedCellSize: number | null;
+  private bucketMaxRadius: Float64Array = new Float64Array(0);
+  private bucketSorted: Uint8Array = new Uint8Array(0);
+  /** Sandbox mode: bodies left out of their bucket this step. */
+  private ghost: Uint8Array = new Uint8Array(0);
+  private scratch: Int32Array = new Int32Array(0);
   private stamp: Int32Array = new Int32Array(0);
   private stampValue: number = 0;
+  private frame: number = 0;
 
   constructor(options: BroadphaseOptions = {}) {
+    this.mode = options.mode ?? "accurate";
     this.fixedCellSize = options.cellSize ?? null;
+    this.overloadThreshold = options.overloadThreshold ?? 24;
+    this.maxPerCell = options.maxPerCell ?? 16;
+    this.maxPairsPerBody = options.maxPairsPerBody ?? (this.mode === "sandbox" ? 16 : 64);
   }
 
-  /** Extra distance at which pairs are reported, so contacts that form during solver iterations are caught. */
-  margin(s: BodyStore): number {
-    return 0.1 * s.maxRadius;
+  /** Bodies i and j become a candidate pair when closer than (r_i + r_j) * contactScale. */
+  get contactScale(): number {
+    return 1 + MARGIN;
   }
 
   build(s: BodyStore): void {
     const n = s.count;
-    const maxR = s.maxRadius;
+    this.frame++;
     // Cells must span a full contact distance or the 27-cell neighborhood could miss pairs
-    const minCell = 2 * maxR + this.margin(s);
+    const minCell = 2 * s.maxRadius * this.contactScale;
     this.cellSize = Math.max(this.fixedCellSize ?? minCell * 1.05, minCell, 1e-9);
     this.stats.cellSize = this.cellSize;
-
-    const tableSize = nextPow2(Math.max(1024, 2 * n));
-    if (tableSize > this.tableSize) {
-      this.tableSize = tableSize;
-      this.cellStart = new Int32Array(tableSize + 1);
-      this.stamp = new Int32Array(tableSize);
-      this.stampValue = 0;
-    }
-    if (this.entries.length < n) {
-      this.entries = new Int32Array(s.capacity);
-      this.bodyHash = new Int32Array(s.capacity);
-    }
+    this.ensureCapacity(n, s.capacity);
 
     const mask = this.tableSize - 1;
     const inv = 1 / this.cellSize;
     const pos = s.pos;
+    const radius = s.radius;
     const flags = s.flags;
-    const cellStart = this.cellStart;
-    const bodyHash = this.bodyHash;
+    const { cellStart, cellEnd, bodyHash, bucketMaxRadius, entries } = this;
     cellStart.fill(0);
+    bucketMaxRadius.fill(0);
 
     for (let i = 0; i < n; i++) {
       if (!(flags[i] & BodyFlags.Collides)) {
@@ -87,6 +131,7 @@ export class HashGrid {
       const h = hash(Math.floor(pos[o] * inv), Math.floor(pos[o + 1] * inv), Math.floor(pos[o + 2] * inv), mask);
       bodyHash[i] = h;
       cellStart[h]++;
+      if (radius[i] > bucketMaxRadius[h]) bucketMaxRadius[h] = radius[i];
     }
 
     // Counting sort: inclusive prefix sums, then fill backwards so each bucket ends up in index order
@@ -99,37 +144,49 @@ export class HashGrid {
       cellStart[b] = running;
     }
     cellStart[this.tableSize] = running;
-    const entries = this.entries;
     for (let i = n - 1; i >= 0; i--) {
       const h = bodyHash[i];
       if (h >= 0) entries[--cellStart[h]] = i;
     }
+    for (let b = 0; b < this.tableSize; b++) cellEnd[b] = cellStart[b + 1];
     this.stats.maxBucket = maxBucket;
+
+    this.ghost.fill(0, 0, n);
+    this.bucketSorted.fill(0);
+    this.stats.overloadedBuckets = 0;
+    this.stats.droppedBodies = 0;
+    if (maxBucket > (this.mode === "sandbox" ? this.maxPerCell : this.overloadThreshold)) {
+      if (this.mode === "sandbox") this.capBuckets();
+      else this.sortBuckets(pos);
+    }
   }
 
   findPairs(s: BodyStore): void {
     this.pairCount = 0;
-    this.stats.candidateTests = 0;
+    this.stats.droppedPairs = 0;
+    this.stats.saturated = false;
     const n = s.count;
     if (s.maxRadius <= 0) {
+      this.stats.candidateTests = 0;
       this.stats.pairs = 0;
       return;
     }
     const pos = s.pos;
     const radius = s.radius;
-    const margin = this.margin(s);
+    const scale = this.contactScale;
     const inv = 1 / this.cellSize;
     const mask = this.tableSize - 1;
-    const { cellStart, entries, bodyHash, stamp } = this;
+    const maxPairs = Math.max(1024, this.maxPairsPerBody * n);
+    const { cellStart, cellEnd, entries, bodyHash, bucketMaxRadius, bucketSorted, ghost, stamp } = this;
     let tests = 0;
 
     for (let i = 0; i < n; i++) {
-      if (bodyHash[i] < 0) continue;
+      if (bodyHash[i] < 0 || ghost[i]) continue;
       const o = i * 3;
       const xi = pos[o];
       const yi = pos[o + 1];
       const zi = pos[o + 2];
-      const ri = radius[i] + margin;
+      const ri = radius[i];
       const cx = Math.floor(xi * inv);
       const cy = Math.floor(yi * inv);
       const cz = Math.floor(zi * inv);
@@ -142,8 +199,30 @@ export class HashGrid {
             // Several neighbor cells can hash to the same bucket: visit each bucket once
             if (stamp[b] === mark) continue;
             stamp[b] = mark;
-            const end = cellStart[b + 1];
-            for (let k = cellStart[b]; k < end; k++) {
+            let k = cellStart[b];
+            let end = cellEnd[b];
+            if (k === end) continue;
+
+            if (bucketSorted[b]) {
+              // Only bodies whose x is within reach can touch: binary search the start, stop past the end
+              const reach = (ri + bucketMaxRadius[b]) * scale;
+              const lo = xi - reach;
+              const top = xi + reach;
+              let hi = end;
+              while (k < hi) {
+                const mid = (k + hi) >>> 1;
+                if (pos[entries[mid] * 3] < lo) k = mid + 1;
+                else hi = mid;
+              }
+              let first = k;
+              while (first < end) {
+                const mid = (first + end) >>> 1;
+                if (pos[entries[mid] * 3] <= top) first = mid + 1;
+                else end = mid;
+              }
+            }
+
+            for (; k < end; k++) {
               const j = entries[k];
               if (j <= i) continue;
               tests++;
@@ -151,20 +230,87 @@ export class HashGrid {
               const ddx = pos[oj] - xi;
               const ddy = pos[oj + 1] - yi;
               const ddz = pos[oj + 2] - zi;
-              const rr = ri + radius[j];
-              if (ddx * ddx + ddy * ddy + ddz * ddz < rr * rr) this.pushPair(i, j);
+              const rr = (ri + radius[j]) * scale;
+              if (ddx * ddx + ddy * ddy + ddz * ddz < rr * rr) {
+                if (this.pairCount < maxPairs) this.pushPair(i, j);
+                else this.stats.droppedPairs++;
+              }
             }
           }
         }
       }
     }
+    this.stats.saturated = this.stats.droppedPairs > 0;
     this.stats.candidateTests = tests;
     this.stats.pairs = this.pairCount;
   }
 
-  protected pushPair(i: number, j: number): void {
+  /** Accurate mode: sort crowded buckets by x so findPairs can sweep them. */
+  private sortBuckets(pos: ArrayLike<number>): void {
+    const { cellStart, cellEnd, entries } = this;
+    const byX = (a: number, b: number): number => pos[a * 3] - pos[b * 3];
+    let overloaded = 0;
+    for (let b = 0; b < this.tableSize; b++) {
+      const start = cellStart[b];
+      const end = cellEnd[b];
+      if (end - start <= this.overloadThreshold) continue;
+      entries.subarray(start, end).sort(byX);
+      this.bucketSorted[b] = 1;
+      overloaded++;
+    }
+    this.stats.overloadedBuckets = overloaded;
+  }
+
+  /**
+   * Sandbox mode: keep at most maxPerCell bodies per bucket. The kept window rotates every step, so no body
+   * is permanently left out; the rest still hit colliders, they just skip body-body collisions this step.
+   */
+  private capBuckets(): void {
+    const { cellStart, cellEnd, entries, ghost } = this;
+    const cap = this.maxPerCell;
+    let overloaded = 0;
+    let dropped = 0;
+    for (let b = 0; b < this.tableSize; b++) {
+      const start = cellStart[b];
+      const m = cellEnd[b] - start;
+      if (m <= cap) continue;
+      overloaded++;
+      const offset = (this.frame * 7919 + b) % m;
+      if (this.scratch.length < m) this.scratch = new Int32Array(m * 2);
+      const tmp = this.scratch;
+      for (let k = 0; k < m; k++) tmp[k] = entries[start + ((k + offset) % m)];
+      for (let k = 0; k < m; k++) {
+        entries[start + k] = tmp[k];
+        if (k >= cap) ghost[tmp[k]] = 1;
+      }
+      cellEnd[b] = start + cap;
+      dropped += m - cap;
+    }
+    this.stats.overloadedBuckets = overloaded;
+    this.stats.droppedBodies = dropped;
+  }
+
+  private ensureCapacity(n: number, capacity: number): void {
+    const tableSize = nextPow2(Math.max(1024, 2 * n));
+    if (tableSize > this.tableSize) {
+      this.tableSize = tableSize;
+      this.cellStart = new Int32Array(tableSize + 1);
+      this.cellEnd = new Int32Array(tableSize);
+      this.bucketMaxRadius = new Float64Array(tableSize);
+      this.bucketSorted = new Uint8Array(tableSize);
+      this.stamp = new Int32Array(tableSize);
+      this.stampValue = 0;
+    }
+    if (this.entries.length < n) {
+      this.entries = new Int32Array(capacity);
+      this.bodyHash = new Int32Array(capacity);
+      this.ghost = new Uint8Array(capacity);
+    }
+  }
+
+  private pushPair(i: number, j: number): void {
     if (this.pairCount * 2 + 2 > this.pairs.length) {
-      const next = new Int32Array(Math.max(1024, this.pairs.length * 2));
+      const next = new Int32Array(Math.max(2048, this.pairs.length * 2));
       next.set(this.pairs);
       this.pairs = next;
     }

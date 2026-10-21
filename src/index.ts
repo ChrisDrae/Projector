@@ -66,7 +66,7 @@ export type {
 export { BoxContainer, PlaneCollider, SphereCollider } from "./physics/colliders.js";
 export type { BoxContainerOptions, ColliderMaterial, SphereColliderOptions } from "./physics/colliders.js";
 export { HashGrid } from "./physics/broadphase.js";
-export type { BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
+export type { BroadphaseMode, BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
 export { solveContacts } from "./physics/contacts.js";
 export { integratePositions, integrateVelocities } from "./physics/integrate.js";
 
