@@ -2,7 +2,7 @@ import {
   rotateAroundX,
   rotateAroundY,
   rotateAroundZ,
-  Vec3,
+  type Vec3,
 } from "../rendering/renderer";
 import { Vec } from "./vectors";
 

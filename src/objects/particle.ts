@@ -1,4 +1,4 @@
-import { Vec3 } from "../rendering/renderer";
+import type { Vec3 } from "../rendering/renderer";
 
 interface ParticleProps {
     position: Vec3,

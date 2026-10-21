@@ -1,20 +1,41 @@
 {
   "name": "projector",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "",
-  "main": "index.js",
+  "description": "Canvas 2D 3D rendering and physics simulation library",
+  "module": "./dist/projector.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/projector.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
   "scripts": {
-    "dev": "concurrently \"vite\" \"tsc --watch\"",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
-    "watch": "tsc --watch"
+    "dev": "vite",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "build:demos": "vite build --mode demos",
+    "preview": "vite preview --mode demos",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ChrisDrae/Projector.git"
   },
-  "keywords": [],
+  "keywords": [
+    "canvas",
+    "3d",
+    "physics",
+    "simulation",
+    "particles"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
@@ -22,8 +43,8 @@
   },
   "homepage": "https://github.com/ChrisDrae/Projector#readme",
   "devDependencies": {
-    "concurrently": "^10.0.5",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^5.0.5"
   }
 }

@@ -2,16 +2,10 @@ import {
   rotateAroundX,
   rotateAroundY,
   rotateAroundZ,
-  Vec3,
+  type Vec3,
 } from "../rendering/renderer.js";
 import Circle from "./circle.js";
 import { Vec } from "./vectors.js";
-
-interface Point {
-  x: number;
-  y: number;
-  z: number;
-}
 
 export class Cube {
   dimension: number;
@@ -189,8 +183,4 @@ export class Cube {
       }),
     );
   }
-}
-
-function addMouseDragRotate() {
-  throw new Error("Function not implemented.");
 }

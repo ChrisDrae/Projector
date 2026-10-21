@@ -2,7 +2,7 @@
 import Circle from "../objects/circle.js";
 import { Cube } from "../objects/cube.js";
 import { Vec } from "../objects/vectors.js";
-import { Vec3 } from "../rendering/renderer.js";
+import type { Vec3 } from "../rendering/renderer.js";
 import { SpatialGrid } from "../utility/partitioning.js";
 
 export class CollisionSystem {
