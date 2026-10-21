@@ -23,6 +23,8 @@ export class BodyStore {
   /** 0 for static bodies. */
   invMass: FloatArray;
   flags: Uint8Array;
+  /** Collision group (0-31), see World.setCollision. */
+  group: Uint8Array;
   /** Dense index -> id. */
   ids: Int32Array;
   /** Largest radius among colliding bodies (sizes the broadphase grid). */
@@ -41,6 +43,7 @@ export class BodyStore {
     this.mass = this.floats(cap);
     this.invMass = this.floats(cap);
     this.flags = new Uint8Array(cap);
+    this.group = new Uint8Array(cap);
     this.ids = new Int32Array(cap);
   }
 
@@ -62,6 +65,9 @@ export class BodyStore {
     const flags = new Uint8Array(cap);
     flags.set(this.flags);
     this.flags = flags;
+    const group = new Uint8Array(cap);
+    group.set(this.group);
+    this.group = group;
     const ids = new Int32Array(cap);
     ids.set(this.ids);
     this.ids = ids;
@@ -78,6 +84,7 @@ export class BodyStore {
     radius: number,
     mass: number,
     flags: number,
+    group: number = 0,
   ): BodyId {
     this.ensureCapacity(this.count + 1);
     const i = this.count++;
@@ -105,6 +112,7 @@ export class BodyStore {
     this.mass[i] = mass;
     this.invMass[i] = isStatic || !(mass > 0) ? 0 : 1 / mass;
     this.flags[i] = flags;
+    this.group[i] = group;
     if (flags & BodyFlags.Collides && radius > this.maxRadius) this.maxRadius = radius;
     return id;
   }
@@ -193,6 +201,7 @@ export class BodyStore {
     this.mass[to] = this.mass[from];
     this.invMass[to] = this.invMass[from];
     this.flags[to] = this.flags[from];
+    this.group[to] = this.group[from];
     this.ids[to] = this.ids[from];
   }
 

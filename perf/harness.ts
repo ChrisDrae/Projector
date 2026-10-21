@@ -1,38 +1,27 @@
-import { Rasterizer, SoftwareEmitter, type Canvas2DLike, type PerspectiveCamera, type Scene, type Vec3, type World } from "projector";
+import {
+  Rasterizer,
+  SoftwareEmitter,
+  type Canvas2DLike,
+  type PerspectiveCamera,
+  type RenderBackend,
+  type RenderStats,
+  type Scene,
+  type Simulation,
+} from "projector";
 
-/** A DOM-free replica of a demo: its world and scene, a fixed camera pose and scripted input. */
-export interface ScenarioInstance {
-  world: World;
-  scene: Scene;
-  camera: PerspectiveCamera;
-  /** Scripted input and other per-frame demo work before the physics step. */
-  update?(dt: number, time: number): void;
-  /** Per-frame demo work after the physics step (mesh sync, trails). */
-  afterStep?(dt: number, time: number): void;
-}
-
+/**
+ * A benchmark scenario: a demo's simulation (its own setup code) drawing into the given backend, with
+ * scripted input instead of a user.
+ */
 export interface Scenario {
   name: string;
-  create(): ScenarioInstance;
+  create(backend: RenderBackend): Simulation;
 }
 
 /** Canvas size in CSS pixels used by every benchmark. */
 export const WIDTH = 1280;
 export const HEIGHT = 720;
 export const DT = 1 / 60;
-
-const forward: Vec3 = { x: 0, y: 0, z: 0 };
-
-/** Places the camera like OrbitControls does, without a DOM element. */
-export function orbitCamera(camera: PerspectiveCamera, target: Vec3, distance: number, yaw = 0, pitch = 0): void {
-  camera.setYawPitch(yaw, pitch);
-  camera.getForward(forward);
-  camera.position = {
-    x: target.x - forward.x * distance,
-    y: target.y - forward.y * distance,
-    z: target.z - forward.z * distance,
-  };
-}
 
 /** Accepts every draw call and counts them; the rasterizer's JS cost without the browser's. */
 export class CountingContext implements Canvas2DLike {
@@ -83,44 +72,59 @@ export class CountingContext implements Canvas2DLike {
   }
 }
 
-/** Runs a scenario frame by frame in the same order as the demos: input, physics, demo work, render. */
-export class Runner {
-  readonly instance: ScenarioInstance;
+/** The Canvas2DBackend pipeline (emit, sort, rasterize) into a CountingContext, timing emit and raster. */
+export class CountingBackend implements RenderBackend {
+  readonly name: string = "counting";
+  readonly stats: RenderStats = { primitives: 0, batches: 0, culled: 0, ms: 0 };
   readonly emitter: SoftwareEmitter = new SoftwareEmitter();
   readonly rasterizer: Rasterizer = new Rasterizer();
   readonly ctx: CountingContext = new CountingContext();
-  time: number = 0;
-  batches: number = 0;
-  /** Milliseconds of the last frame: physics, update (input + demo work), emit (+ sort), raster, total. */
+  emitMs: number = 0;
+  rasterMs: number = 0;
+
+  setSize(): void {}
+
+  render(scene: Scene, camera: PerspectiveCamera): void {
+    const t0 = performance.now();
+    camera.aspect = WIDTH / HEIGHT;
+    this.emitter.emitScene(scene, camera, WIDTH, HEIGHT);
+    this.emitter.queue.sort();
+    const t1 = performance.now();
+    this.rasterizer.reset();
+    this.ctx.reset();
+    this.stats.batches = this.rasterizer.draw(this.ctx, this.emitter.queue);
+    const t2 = performance.now();
+    this.stats.primitives = this.emitter.queue.count;
+    this.stats.culled = this.emitter.culled;
+    this.emitMs = t1 - t0;
+    this.rasterMs = t2 - t1;
+    this.stats.ms = t2 - t0;
+  }
+
+  dispose(): void {}
+}
+
+/** Runs a scenario frame by frame through Simulation.frame, like the demo pages do. */
+export class Runner {
+  readonly backend: CountingBackend = new CountingBackend();
+  readonly sim: Simulation;
+  /** Milliseconds of the last frame: physics, update (input, objects, sync), emit (+ sort), raster, total. */
   readonly times: Float64Array = new Float64Array(5);
 
   constructor(scenario: Scenario) {
-    this.instance = scenario.create();
+    this.sim = scenario.create(this.backend);
   }
 
   frame(): void {
-    const { instance, emitter, rasterizer, ctx, times } = this;
-    this.time += DT;
     const t0 = performance.now();
-    instance.update?.(DT, this.time);
+    this.sim.frame(DT);
     const t1 = performance.now();
-    instance.world.step(DT);
-    const t2 = performance.now();
-    instance.afterStep?.(DT, this.time);
-    const t3 = performance.now();
-    instance.camera.aspect = WIDTH / HEIGHT;
-    emitter.emitScene(instance.scene, instance.camera, WIDTH, HEIGHT);
-    emitter.queue.sort();
-    const t4 = performance.now();
-    rasterizer.reset();
-    ctx.reset();
-    this.batches = rasterizer.draw(ctx, emitter.queue);
-    const t5 = performance.now();
-    times[0] = t2 - t1;
-    times[1] = t1 - t0 + (t3 - t2);
-    times[2] = t4 - t3;
-    times[3] = t5 - t4;
-    times[4] = t5 - t0;
+    const s = this.sim.stats;
+    this.times[0] = s.physicsMs;
+    this.times[1] = s.updateMs;
+    this.times[2] = this.backend.emitMs;
+    this.times[3] = this.backend.rasterMs;
+    this.times[4] = t1 - t0;
   }
 
   run(frames: number): void {
@@ -137,7 +141,7 @@ export interface TimingResult {
   frames: number;
   /** world.step */
   physicsMs: Timing;
-  /** Scripted input and demo work around the step */
+  /** Scripted input, object updates and syncs around the step */
   updateMs: Timing;
   /** emitScene + sort */
   emitMs: Timing;
@@ -184,8 +188,8 @@ export interface Counters {
   finite: boolean;
 }
 
-function allFinite(world: World): boolean {
-  const s = world.bodies;
+function allFinite(sim: Simulation): boolean {
+  const s = sim.world.bodies;
   for (let i = 0; i < s.count * 3; i++) {
     if (!Number.isFinite(s.pos[i]) || !Number.isFinite(s.vel[i])) return false;
   }
@@ -208,15 +212,15 @@ export function count(scenario: Scenario, frames: number): Counters {
   };
   for (let f = 0; f < frames; f++) {
     r.frame();
-    const w = r.instance.world;
-    c.primitives = Math.max(c.primitives, r.emitter.queue.count);
-    c.batches = Math.max(c.batches, r.batches);
-    c.beginPaths = Math.max(c.beginPaths, r.ctx.beginPaths);
-    c.pathCommands = Math.max(c.pathCommands, r.ctx.pathCommands);
+    const w = r.sim.world;
+    c.primitives = Math.max(c.primitives, r.backend.stats.primitives);
+    c.batches = Math.max(c.batches, r.backend.stats.batches);
+    c.beginPaths = Math.max(c.beginPaths, r.backend.ctx.beginPaths);
+    c.pathCommands = Math.max(c.pathCommands, r.backend.ctx.pathCommands);
     c.pairs = Math.max(c.pairs, w.stats.pairs);
     c.candidateTests = Math.max(c.candidateTests, w.broadphase.stats.candidateTests);
   }
-  c.bodies = r.instance.world.bodies.count;
-  c.finite = allFinite(r.instance.world);
+  c.bodies = r.sim.world.bodies.count;
+  c.finite = allFinite(r.sim);
   return c;
 }

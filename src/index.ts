@@ -53,7 +53,7 @@ export { clipPolygonNear, clipSegmentNear } from "./rendering/software/clip.js";
 
 // Physics
 export { World } from "./physics/world.js";
-export type { StepStats, WorldOptions } from "./physics/world.js";
+export type { RaycastHit, StepListener, StepStats, WorldOptions } from "./physics/world.js";
 export { BodyStore } from "./physics/bodyStore.js";
 export type { FloatArray } from "./physics/bodyStore.js";
 export { BodyFlags } from "./physics/types.js";
@@ -76,6 +76,7 @@ export { NBodyGravity, kineticEnergy } from "./physics/nbody.js";
 export { DistanceConstraintSet, SpringSet } from "./physics/constraints.js";
 export type { DistanceConstraintOptions, SpringOptions } from "./physics/constraints.js";
 export { solveContacts } from "./physics/contacts.js";
+export { rayPlane, raySphere } from "./physics/raycast.js";
 export { integratePositions, integrateVelocities } from "./physics/integrate.js";
 
 // Controls
@@ -104,3 +105,21 @@ export {
   LEGACY_CAMERA_Z,
 } from "./legacy.js";
 export type { Vec2 } from "./legacy.js";
+
+// Framework
+export { Simulation } from "./framework/simulation.js";
+export type { FrameListener, SimulationOptions, SimulationStats } from "./framework/simulation.js";
+export { SimObject } from "./framework/simObject.js";
+export type { SimObjectOptions } from "./framework/simObject.js";
+export { ParticleGroup } from "./framework/objects/particleGroup.js";
+export type { ParticleGroupOptions, ParticleOptions } from "./framework/objects/particleGroup.js";
+export { Container } from "./framework/objects/container.js";
+export type { ContainerOptions } from "./framework/objects/container.js";
+export { Ground } from "./framework/objects/ground.js";
+export type { GroundOptions } from "./framework/objects/ground.js";
+export { StaticSphere } from "./framework/objects/staticSphere.js";
+export type { StaticSphereOptions } from "./framework/objects/staticSphere.js";
+export { Cloth } from "./framework/objects/cloth.js";
+export type { ClothOptions } from "./framework/objects/cloth.js";
+export { VelocityTrails } from "./framework/objects/velocityTrails.js";
+export type { VelocityTrailsOptions } from "./framework/objects/velocityTrails.js";

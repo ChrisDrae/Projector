@@ -2,6 +2,7 @@ import * as quat from "../math/quat.js";
 import { Transform } from "../math/transform.js";
 import type { Vec3 } from "../math/vec3.js";
 import type { BodyStore, FloatArray } from "./bodyStore.js";
+import { rayPlane, raySphere } from "./raycast.js";
 import { BodyFlags, type Collider, type SolverSettings } from "./types.js";
 
 /**
@@ -210,6 +211,16 @@ export class PlaneCollider implements Collider {
 
   update(): void {}
 
+  raycast(origin: Vec3, dir: Vec3, normal: Vec3): number {
+    const t = rayPlane(origin, dir, this.normal, this.offset);
+    if (t >= 0) {
+      normal.x = this.normal.x;
+      normal.y = this.normal.y;
+      normal.z = this.normal.z;
+    }
+    return t;
+  }
+
   solve(s: BodyStore, set: SolverSettings): void {
     const e = this.restitution ?? set.restitution;
     const mu = this.friction ?? set.friction;
@@ -246,6 +257,19 @@ export class SphereCollider implements Collider {
   }
 
   update(): void {}
+
+  raycast(origin: Vec3, dir: Vec3, normal: Vec3): number {
+    // Inside containers are transparent to picking
+    if (this.inside) return -1;
+    const c = this.center;
+    const t = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, c.x, c.y, c.z, this.radius);
+    if (t > 0) {
+      normal.x = (origin.x + dir.x * t - c.x) / this.radius;
+      normal.y = (origin.y + dir.y * t - c.y) / this.radius;
+      normal.z = (origin.z + dir.z * t - c.z) / this.radius;
+    }
+    return t > 0 ? t : -1;
+  }
 
   solve(s: BodyStore, set: SolverSettings): void {
     const e = this.restitution ?? set.restitution;

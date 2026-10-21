@@ -23,6 +23,8 @@ export interface BodyOptions {
   isStatic?: boolean;
   /** Default: radius > 0. */
   collides?: boolean;
+  /** Collision group 0-31 (default 0), see World.setCollision and World.createGroup. */
+  group?: number;
 }
 
 /** Shared parameters handed to contact and collider solvers each step. */
@@ -53,4 +55,9 @@ export interface Collider {
   update(dt: number): void;
   /** Resolves penetration and velocity for every body, once per solver iteration. */
   solve(bodies: BodyStore, settings: SolverSettings): void;
+  /**
+   * Optional ray test for picking: distance along the ray (unit `dir`) to the surface, writing the
+   * surface normal to `normal`, or -1 for a miss.
+   */
+  raycast?(origin: Vec3, dir: Vec3, normal: Vec3): number;
 }

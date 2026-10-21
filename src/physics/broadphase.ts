@@ -68,6 +68,11 @@ export class HashGrid {
   entries: Int32Array = new Int32Array(0);
   /** Bucket of each body, -1 if it does not collide. */
   bodyHash: Int32Array = new Int32Array(0);
+  /**
+   * Per collision group, a bit mask of the groups it collides with (bit g set: collides with group g).
+   * null, the default, means every group collides with every other and costs nothing.
+   */
+  collisionMask: Uint32Array | null = null;
   /** Body index pairs (i < j) found by the last findPairs(). */
   pairs: Int32Array = new Int32Array(0);
   pairCount: number = 0;
@@ -240,9 +245,26 @@ export class HashGrid {
         }
       }
     }
+    // Collision groups are filtered afterwards, so the search loop costs nothing extra without them
+    if (this.collisionMask !== null) this.filterPairs(s.group, this.collisionMask);
     this.stats.saturated = this.stats.droppedPairs > 0;
     this.stats.candidateTests = tests;
     this.stats.pairs = this.pairCount;
+  }
+
+  /** Drops pairs whose groups don't collide, keeping the rest in order. */
+  private filterPairs(group: Uint8Array, masks: Uint32Array): void {
+    const pairs = this.pairs;
+    let kept = 0;
+    for (let p = 0; p < this.pairCount; p++) {
+      const i = pairs[p * 2];
+      const j = pairs[p * 2 + 1];
+      if (((masks[group[i]] >>> group[j]) & 1) === 0) continue;
+      pairs[kept * 2] = i;
+      pairs[kept * 2 + 1] = j;
+      kept++;
+    }
+    this.pairCount = kept;
   }
 
   /** Accurate mode: sort crowded buckets by x so findPairs can sweep them. */

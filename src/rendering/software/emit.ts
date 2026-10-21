@@ -301,6 +301,8 @@ export class SoftwareEmitter implements EmitContext {
     const p = this.proj;
     const near = p.near;
     const minR = node.minPixelRadius;
+    const only = node.group ?? -1;
+    const groups = only >= 0 ? (src.group ?? null) : null;
     this.ensureCloudCapacity(n);
     const cloud = this.cloud;
     const index = this.cloudIndex;
@@ -309,6 +311,7 @@ export class SoftwareEmitter implements EmitContext {
     let zmin = Infinity;
     let zmax = -Infinity;
     for (let i = 0; i < n; i++) {
+      if (groups !== null && groups[i] !== only) continue;
       const r = rad[i];
       if (!(r > 0)) continue;
       const x = pos[i * 3];
@@ -367,6 +370,8 @@ export class SoftwareEmitter implements EmitContext {
     const near = p.near;
     const size = node.size;
     const half = size / 2;
+    const only = node.group ?? -1;
+    const groups = only >= 0 ? (src.group ?? null) : null;
     this.ensureCloudCapacity(n);
     const cloud = this.cloud;
 
@@ -374,6 +379,7 @@ export class SoftwareEmitter implements EmitContext {
     let zmin = Infinity;
     let zmax = -Infinity;
     for (let i = 0; i < n; i++) {
+      if (groups !== null && groups[i] !== only) continue;
       const x = pos[i * 3];
       const y = pos[i * 3 + 1];
       const z = pos[i * 3 + 2];

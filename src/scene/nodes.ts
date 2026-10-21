@@ -44,6 +44,8 @@ export interface SphereSource {
   readonly count: number;
   readonly pos: ArrayLike<number>;
   readonly radius: ArrayLike<number>;
+  /** Group per sphere, for clouds that draw only one group. */
+  readonly group?: ArrayLike<number>;
 }
 
 export interface SphereCloudOptions {
@@ -57,6 +59,8 @@ export interface SphereCloudOptions {
   shadeLevels?: number;
   minPixelRadius?: number;
   layer?: number;
+  /** Draw only the spheres of this group (needs source.group). Default: all. */
+  group?: number | null;
 }
 
 /** Many spheres drawn as screen-space circles, sized by perspective. */
@@ -68,6 +72,8 @@ export class SphereCloud {
   depthCue: number;
   shadeLevels: number;
   minPixelRadius: number;
+  /** Draw only the spheres of this group; null draws all. */
+  group: number | null;
   visible: boolean = true;
   layer: number;
 
@@ -79,12 +85,14 @@ export class SphereCloud {
     this.shadeLevels = options.shadeLevels ?? 16;
     this.minPixelRadius = options.minPixelRadius ?? 0.6;
     this.layer = options.layer ?? Layer.World;
+    this.group = options.group ?? null;
   }
 }
 
 export interface PointSource {
   readonly count: number;
   readonly pos: ArrayLike<number>;
+  readonly group?: ArrayLike<number>;
 }
 
 export interface PointCloudOptions {
@@ -94,6 +102,8 @@ export interface PointCloudOptions {
   depthCue?: number;
   shadeLevels?: number;
   layer?: number;
+  /** Draw only the points of this group (needs source.group). Default: all. */
+  group?: number | null;
 }
 
 /** Fixed-size screen-space squares, e.g. for massless particles. */
@@ -104,6 +114,7 @@ export class PointCloud {
   size: number;
   depthCue: number;
   shadeLevels: number;
+  group: number | null;
   visible: boolean = true;
   layer: number;
 
@@ -114,6 +125,7 @@ export class PointCloud {
     this.depthCue = options.depthCue ?? 0.5;
     this.shadeLevels = options.shadeLevels ?? 8;
     this.layer = options.layer ?? Layer.World;
+    this.group = options.group ?? null;
   }
 }
 
@@ -146,6 +158,14 @@ export class LineSet {
 
   get capacity(): number {
     return this.positions.length / 6;
+  }
+
+  /** Grows the buffer (keeping its segments) so it holds at least `n` segments. */
+  ensureCapacity(n: number): void {
+    if (n <= this.capacity) return;
+    const next = new Float32Array(Math.max(n, this.capacity * 2) * 6);
+    next.set(this.positions);
+    this.positions = next;
   }
 
   setSegment(i: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): void {

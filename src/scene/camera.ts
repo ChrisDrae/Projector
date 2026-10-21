@@ -92,6 +92,26 @@ export class PerspectiveCamera {
     return quat.rotateVec3(out, this.rotation, Y_AXIS);
   }
 
+  /**
+   * The ray through a point on the screen (CSS pixels on a width x height viewport): `origin` is the
+   * camera position and `dir` a unit world-space direction. Used for picking with World.raycast.
+   */
+  screenToRay(x: number, y: number, width: number, height: number, origin: Vec3, dir: Vec3): void {
+    // Inverse of the projection with the aspect of the viewport (pixels are square)
+    const s = (this.focalLength * height) / 2;
+    forward.x = (x - width / 2) / s;
+    forward.y = -(y - height / 2) / s;
+    forward.z = 1;
+    const len = Math.hypot(forward.x, forward.y, 1);
+    forward.x /= len;
+    forward.y /= len;
+    forward.z /= len;
+    quat.rotateVec3(dir, this.rotation, forward);
+    origin.x = this.position.x;
+    origin.y = this.position.y;
+    origin.z = this.position.z;
+  }
+
   /** Called by the backend before every render. */
   updateMatrices(): void {
     mat4.compose(this.worldMatrix, this.rotation, this.position, UNIT_SCALE);

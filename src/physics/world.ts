@@ -3,6 +3,7 @@ import { HashGrid, type BroadphaseOptions } from "./broadphase.js";
 import { BodyStore } from "./bodyStore.js";
 import { solveContacts } from "./contacts.js";
 import { integratePositions, integrateVelocities } from "./integrate.js";
+import { raySphere } from "./raycast.js";
 import {
   BodyFlags,
   type BodyId,
@@ -34,6 +35,18 @@ export interface WorldOptions {
   initialCapacity?: number;
   broadphase?: BroadphaseOptions;
 }
+
+export interface RaycastHit {
+  distance: number;
+  point: Vec3;
+  normal: Vec3;
+  /** The body hit, or -1 when a collider was hit. */
+  body: BodyId;
+  collider: Collider | null;
+}
+
+/** Called once per fixed step, with the step's dt. */
+export type StepListener = (dt: number, world: World) => void;
 
 export interface StepStats {
   /** Fixed steps run by the last step() call. */
@@ -75,6 +88,9 @@ export class World {
     restThreshold: 0,
   };
   private accumulator: number = 0;
+  private readonly beforeStep: StepListener[] = [];
+  private readonly afterStep: StepListener[] = [];
+  private nextGroup: number = 1;
 
   constructor(options: WorldOptions = {}) {
     this.bodies = new BodyStore(options.precision ?? "f32", options.initialCapacity ?? 256);
@@ -105,7 +121,45 @@ export class World {
       radius,
       o.mass ?? 1,
       flags,
+      o.group ?? 0,
     );
+  }
+
+  /** Reserves a collision group (1-31) not handed out before; group 0 is the default. */
+  createGroup(): number {
+    if (this.nextGroup > 31) throw new Error("All 32 collision groups are in use.");
+    return this.nextGroup++;
+  }
+
+  /** Whether bodies of group a collide with bodies of group b (both ways). Everything collides by default. */
+  setCollision(a: number, b: number, collide: boolean): void {
+    const bp = this.broadphase;
+    const masks = bp.collisionMask ?? new Uint32Array(32).fill(0xffffffff);
+    if (collide) {
+      masks[a] |= 1 << b;
+      masks[b] |= 1 << a;
+    } else {
+      masks[a] &= ~(1 << b);
+      masks[b] &= ~(1 << a);
+    }
+    bp.collisionMask = masks.every((m) => m === 0xffffffff) ? null : masks;
+  }
+
+  canCollide(a: number, b: number): boolean {
+    const masks = this.broadphase.collisionMask;
+    return masks === null || ((masks[a] >>> b) & 1) === 1;
+  }
+
+  /** Runs `listener` at the start of every fixed step (before forces). Returns a function that removes it. */
+  onBeforeStep(listener: StepListener): () => void {
+    this.beforeStep.push(listener);
+    return () => remove(this.beforeStep, listener);
+  }
+
+  /** Runs `listener` at the end of every fixed step. Returns a function that removes it. */
+  onAfterStep(listener: StepListener): () => void {
+    this.afterStep.push(listener);
+    return () => remove(this.afterStep, listener);
   }
 
   removeBody(id: BodyId): boolean {
@@ -197,6 +251,61 @@ export class World {
   }
 
   /**
+   * Closest body (with radius > 0) or collider hit by a ray, for picking. `dir` must be unit length.
+   * Bodies are tested one by one, so it suits occasional queries like clicks, not every frame for every body.
+   */
+  raycast(origin: Vec3, dir: Vec3, maxDistance: number = Infinity, out?: RaycastHit): RaycastHit | null {
+    let best = maxDistance;
+    let body = -1;
+    let collider: Collider | null = null;
+    const normal = { x: 0, y: 0, z: 0 };
+    const s = this.bodies;
+    for (let i = 0; i < s.count; i++) {
+      const r = s.radius[i];
+      if (!(r > 0)) continue;
+      const o = i * 3;
+      const t = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, s.pos[o], s.pos[o + 1], s.pos[o + 2], r);
+      if (t >= 0 && t < best) {
+        best = t;
+        body = s.ids[i];
+      }
+    }
+    const n = { x: 0, y: 0, z: 0 };
+    for (const c of this.colliders) {
+      if (!c.raycast) continue;
+      const t = c.raycast(origin, dir, n);
+      if (t >= 0 && t < best) {
+        best = t;
+        body = -1;
+        collider = c;
+        normal.x = n.x;
+        normal.y = n.y;
+        normal.z = n.z;
+      }
+    }
+    if (body < 0 && collider === null) return null;
+
+    const hit: RaycastHit = out ?? { distance: 0, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 0 }, body: -1, collider: null };
+    hit.distance = best;
+    hit.point.x = origin.x + dir.x * best;
+    hit.point.y = origin.y + dir.y * best;
+    hit.point.z = origin.z + dir.z * best;
+    hit.body = body;
+    hit.collider = collider;
+    if (body >= 0) {
+      const o = s.indexOf(body) * 3;
+      const r = s.radius[s.indexOf(body)];
+      normal.x = (hit.point.x - s.pos[o]) / r;
+      normal.y = (hit.point.y - s.pos[o + 1]) / r;
+      normal.z = (hit.point.z - s.pos[o + 2]) / r;
+    }
+    hit.normal.x = normal.x;
+    hit.normal.y = normal.y;
+    hit.normal.z = normal.z;
+    return hit;
+  }
+
+  /**
    * Advances by a frame's worth of time in fixed steps. Leftover time carries over to the next call;
    * if a frame needs more than maxSubSteps, the backlog is dropped instead of spiralling.
    * Returns the number of fixed steps run.
@@ -225,6 +334,7 @@ export class World {
     set.friction = this.friction;
     const g = this.gravity;
     set.restThreshold = Math.max(2 * Math.hypot(g.x, g.y, g.z) * dt, 1e-4);
+    for (let k = 0; k < this.beforeStep.length; k++) this.beforeStep[k](dt, this);
 
     for (const f of this.forces) f.apply(s, dt, this.time);
     integrateVelocities(s, g, dt, this.linearDamping);
@@ -249,6 +359,7 @@ export class World {
     this.time += dt;
     this.stats.bodies = s.count;
     this.stats.pairs = pairCount;
+    for (let k = 0; k < this.afterStep.length; k++) this.afterStep[k](dt, this);
   }
 
   private index(id: BodyId): number {
