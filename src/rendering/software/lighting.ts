@@ -277,9 +277,10 @@ export class Lighting {
    * Light on a sphere centered at p (view space), split for sprites: the strongest light (color times
    * strength in lightR/G/B, direction toward it in lx/ly/lz) and everything else as one uniform term
    * (ambientR/G/B: ambient, the hemisphere's middle, the other lights by how much of the visible side
-   * they reach). `phase` is the part of the visible side the strongest light reaches (0..1).
+   * they reach). `phase` is the part of the visible side the strongest light reaches (0..1). A light
+   * inside the sphere (closer than `radius` to its center) lights the side facing the viewer: it glows.
    */
-  sphere(px: number, py: number, pz: number, out: SphereLight): void {
+  sphere(px: number, py: number, pz: number, radius: number, out: SphereLight): void {
     let ar = this.ambR;
     let ag = this.ambG;
     let ab = this.ambB;
@@ -310,10 +311,16 @@ export class Lighting {
         const dy = this.pos[l * 3 + 1] - py;
         const dz = this.pos[l * 3 + 2] - pz;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
-        lx = dx / d;
-        ly = dy / d;
-        lz = dz / d;
-        att = attenuation(d, this.range[l], this.decay[l]);
+        if (d < radius) {
+          lx = vx;
+          ly = vy;
+          lz = vz;
+        } else {
+          lx = dx / d;
+          ly = dy / d;
+          lz = dz / d;
+        }
+        att = attenuation(Math.max(d, radius), this.range[l], this.decay[l]);
         if (t === SPOT) {
           const c = -(lx * this.dir[l * 3] + ly * this.dir[l * 3 + 1] + lz * this.dir[l * 3 + 2]);
           const outer = this.cosOuter[l];

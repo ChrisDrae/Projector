@@ -77,6 +77,17 @@
       "candidateTests": 0,
       "bodies": 48,
       "finite": true
+    },
+    "rigid-bodies": {
+      "frames": 120,
+      "primitives": 1355,
+      "batches": 786,
+      "beginPaths": 786,
+      "pathCommands": 4314,
+      "pairs": 0,
+      "candidateTests": 0,
+      "bodies": 0,
+      "finite": true
     }
   }
 }

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const r = (p: string): string => fileURLToPath(new URL(p, import.meta.url));
 
-const demos = ["cube-container", "gravitation", "cloth", "flow-field", "lighting"];
+const demos = ["cube-container", "gravitation", "cloth", "flow-field", "lighting", "rigid-bodies"];
 
 export default defineConfig(({ mode }) => ({
   resolve: {

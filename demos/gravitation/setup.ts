@@ -1,4 +1,16 @@
-import { Ground, NBodyGravity, ParticleGroup, Random, vec3, type Simulation } from "projector";
+import {
+  AmbientLight,
+  DirectionalLight,
+  Ground,
+  NBodyGravity,
+  ParticleGroup,
+  PointLight,
+  Random,
+  vec3,
+  type BodyId,
+  type Simulation,
+  type SphereCloud,
+} from "projector";
 import type { DemoConfig } from "../shared/config.js";
 
 const CORE_MASS = 10;
@@ -19,6 +31,8 @@ export interface GravitationDemo {
   /** Adds a ring of light bodies on circular orbits between rMin and rMax. */
   addDisk(count: number, rMin: number, rMax: number): void;
   reset(): void;
+  /** Off by default: bodies drawn as flat dots. On: lit by a light at the core, as shaded balls. */
+  setLit(on: boolean): void;
 }
 
 function radiusFor(mass: number): number {
@@ -47,6 +61,15 @@ export function setup(sim: Simulation): GravitationDemo {
   const rnd = new Random(7);
   const p = vec3.create();
   const v = vec3.create();
+  let core: BodyId = -1;
+  const star = new PointLight({ x: 0, y: 0, z: 0 }, { color: "#ffe2b0", intensity: 5, decay: 1 });
+  const coreAt = vec3.create();
+  sim.onUpdate(() => {
+    if (core >= 0 && sim.world.bodies.has(core)) sim.world.getPosition(core, coreAt);
+    star.position.x = coreAt.x;
+    star.position.y = coreAt.y;
+    star.position.z = coreAt.z;
+  });
 
   const demo: GravitationDemo = {
     gravity,
@@ -64,9 +87,15 @@ export function setup(sim: Simulation): GravitationDemo {
     },
     reset() {
       bodies.clear();
-      bodies.add({ position: { x: 0, y: 0, z: 0 }, mass: CORE_MASS, radius: 0.16 });
+      core = bodies.add({ position: { x: 0, y: 0, z: 0 }, mass: CORE_MASS, radius: 0.16 });
       demo.addDisk(700, 0.6, 3.2);
       cancelDrift(sim);
+    },
+    setLit(on) {
+      const cloud = bodies.node as SphereCloud;
+      cloud.shading = on ? "sprite" : "flat";
+      sim.scene.ambient = new AmbientLight(on ? 0.06 : 0.3);
+      sim.scene.lights = on ? [star] : [new DirectionalLight()];
     },
   };
   demo.reset();

@@ -512,7 +512,7 @@ export class SoftwareEmitter implements EmitContext {
         c = colorIndex(i) % pal;
         if (!(c >= 0)) c = 0;
       }
-      l.sphere(vx, vy, vz, s);
+      l.sphere(vx, vy, vz, r, s);
 
       if (sprites && sr >= minSprite) {
         const lightKey =

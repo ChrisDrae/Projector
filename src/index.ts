@@ -156,3 +156,5 @@ export { VelocityTrails } from "./framework/objects/velocityTrails.js";
 export type { VelocityTrailsOptions } from "./framework/objects/velocityTrails.js";
 export { MeshObject } from "./framework/objects/meshObject.js";
 export type { MeshObjectOptions } from "./framework/objects/meshObject.js";
+export { RigidBox, RigidCapsule, RigidObject, RigidSphere, meshFor } from "./framework/objects/rigidObject.js";
+export type { RigidObjectOptions } from "./framework/objects/rigidObject.js";

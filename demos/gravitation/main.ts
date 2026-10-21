@@ -7,6 +7,7 @@ const { sim, hud, demo } = startDemo(config, setup);
 const row = hud.row();
 hud.button("Reset", () => demo.reset(), row);
 hud.button("+200 bodies", () => demo.addDisk(200, 3.4, 4.2), row);
+hud.select("lighting", ["flat", "lit by the core"] as const, "flat", (l) => demo.setLit(l !== "flat"));
 hud.slider("G", 0.2, 3, 0.1, demo.gravity.G, (g) => (demo.gravity.G = g));
 hud.slider("time scale", 0.1, 2, 0.05, sim.world.timeScale, (t) => (sim.world.timeScale = t));
 

@@ -240,3 +240,48 @@ describe("picking", () => {
     expect(sim.world.raycast(origin, dir)).toBeNull();
   });
 });
+
+describe("rigid objects", () => {
+  it("create their body, follow it every frame and remove it with themselves", async () => {
+    const { RigidBox, RigidCapsule, RigidSphere } = await import("../../src/framework/objects/rigidObject.js");
+    const sim = new Simulation();
+    sim.add(new Ground());
+    const box = sim.add(new RigidBox(0.4, { position: { x: 0, y: 1, z: 0 } }));
+    const ball = sim.add(new RigidSphere(0.2, { position: { x: 1, y: 2, z: 0 } }));
+    // Slightly tilted, so it can't balance on its end
+    const tilt = [0, 0, Math.sin(0.15), Math.cos(0.15)];
+    const capsule = sim.add(new RigidCapsule(0.1, 0.3, { position: { x: -1, y: 1, z: 0 }, rotation: tilt }));
+    expect(sim.world.rigid.count).toBe(3);
+    for (let f = 0; f < 240; f++) sim.frame(1 / 60);
+    expect(box.transform.position.y).toBeCloseTo(0.2, 2);
+    expect(ball.transform.position.y).toBeCloseTo(0.2, 2);
+    // The capsule tipped over and lies on its side
+    expect(capsule.transform.position.y).toBeCloseTo(0.1, 2);
+    expect(box.node.parentMatrix).toBe(box.worldMatrix);
+    expect(box.worldMatrix[13]).toBeCloseTo(0.2, 2);
+    sim.remove(ball);
+    expect(sim.world.rigid.count).toBe(2);
+    expect(ball.id).toBe(-1);
+  });
+
+  it("are found by picking rays with the right surface normal", async () => {
+    const { RigidBox, RigidCapsule } = await import("../../src/framework/objects/rigidObject.js");
+    const sim = new Simulation({ world: { gravity: { x: 0, y: 0, z: 0 } } });
+    const box = sim.add(new RigidBox(1, { position: { x: 0, y: 0, z: 2 } }));
+    const capsule = sim.add(new RigidCapsule(0.25, 0.5, { position: { x: 3, y: 0, z: 2 } }));
+    sim.frame(0);
+    const hit = sim.world.raycast({ x: 0, y: 0, z: -5 }, { x: 0, y: 0, z: 1 })!;
+    expect(hit.rigid).toBe(box.id);
+    expect(hit.distance).toBeCloseTo(6.5);
+    expect(hit.normal.z).toBeCloseTo(-1);
+    // From above onto the capsule's top cap
+    const top = sim.world.raycast({ x: 3, y: 5, z: 2 }, { x: 0, y: -1, z: 0 })!;
+    expect(top.rigid).toBe(capsule.id);
+    expect(top.point.y).toBeCloseTo(0.75);
+    expect(top.normal.y).toBeCloseTo(1);
+    // Its side
+    const side = sim.world.raycast({ x: 6, y: 0.2, z: 2 }, { x: -1, y: 0, z: 0 })!;
+    expect(side.point.x).toBeCloseTo(3.25);
+    expect(side.normal.x).toBeCloseTo(1);
+  });
+});

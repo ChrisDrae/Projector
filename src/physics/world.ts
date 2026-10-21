@@ -3,7 +3,7 @@ import { HashGrid, type BroadphaseOptions } from "./broadphase.js";
 import { BodyStore } from "./bodyStore.js";
 import { solveContacts } from "./contacts.js";
 import { integratePositions, integrateVelocities } from "./integrate.js";
-import { raySphere } from "./raycast.js";
+import { rayRigid, raySphere } from "./raycast.js";
 import { RigidPipeline, type RigidSettings } from "./rigid/rigidPipeline.js";
 import { RigidBodyStore, type RigidBodyId, type RigidBodyOptions } from "./rigid/rigidStore.js";
 import {
@@ -44,8 +44,10 @@ export interface RaycastHit {
   distance: number;
   point: Vec3;
   normal: Vec3;
-  /** The body hit, or -1 when a collider was hit. */
+  /** The particle hit, or -1. */
   body: BodyId;
+  /** The rigid body hit, or -1. */
+  rigid: RigidBodyId;
   collider: Collider | null;
 }
 
@@ -283,12 +285,14 @@ export class World {
   }
 
   /**
-   * Closest body (with radius > 0) or collider hit by a ray, for picking. `dir` must be unit length.
-   * Bodies are tested one by one, so it suits occasional queries like clicks, not every frame for every body.
+   * Closest particle (with radius > 0), rigid body or collider hit by a ray, for picking. `dir` must be
+   * unit length. Bodies are tested one by one, so it suits occasional queries like clicks, not every frame
+   * for every body.
    */
   raycast(origin: Vec3, dir: Vec3, maxDistance: number = Infinity, out?: RaycastHit): RaycastHit | null {
     let best = maxDistance;
     let body = -1;
+    let rigidHit = -1;
     let collider: Collider | null = null;
     const normal = { x: 0, y: 0, z: 0 };
     const s = this.bodies;
@@ -303,26 +307,47 @@ export class World {
       }
     }
     const n = { x: 0, y: 0, z: 0 };
+    const rigid = this.rigid;
+    for (let i = 0; i < rigid.count; i++) {
+      const t = rayRigid(rigid, i, origin, dir, n);
+      if (t >= 0 && t < best) {
+        best = t;
+        body = -1;
+        rigidHit = rigid.ids[i];
+        normal.x = n.x;
+        normal.y = n.y;
+        normal.z = n.z;
+      }
+    }
     for (const c of this.colliders) {
       if (!c.raycast) continue;
       const t = c.raycast(origin, dir, n);
       if (t >= 0 && t < best) {
         best = t;
         body = -1;
+        rigidHit = -1;
         collider = c;
         normal.x = n.x;
         normal.y = n.y;
         normal.z = n.z;
       }
     }
-    if (body < 0 && collider === null) return null;
+    if (body < 0 && rigidHit < 0 && collider === null) return null;
 
-    const hit: RaycastHit = out ?? { distance: 0, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 0 }, body: -1, collider: null };
+    const hit: RaycastHit = out ?? {
+      distance: 0,
+      point: { x: 0, y: 0, z: 0 },
+      normal: { x: 0, y: 0, z: 0 },
+      body: -1,
+      rigid: -1,
+      collider: null,
+    };
     hit.distance = best;
     hit.point.x = origin.x + dir.x * best;
     hit.point.y = origin.y + dir.y * best;
     hit.point.z = origin.z + dir.z * best;
     hit.body = body;
+    hit.rigid = rigidHit;
     hit.collider = collider;
     if (body >= 0) {
       const o = s.indexOf(body) * 3;
