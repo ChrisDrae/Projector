@@ -4,15 +4,18 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": [],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
     "noUnusedLocals": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "projector": ["./src/index.ts"]
     }
   },
-  "include": ["src", "demos", "tests"]
+  "include": ["src", "demos", "tests", "perf"],
+  "exclude": ["perf/*.test.ts"]
 }

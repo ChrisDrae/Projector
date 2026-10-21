@@ -24,6 +24,14 @@ const demo = createDemo({
   help: "Left drag: spin the box · Arrows, PgUp/PgDn: move it\nRight drag: orbit · Wheel: zoom",
   background: "#333131",
   orbit: { button: 2, target: { x: 0, y: 0.3, z: 0.2 }, distance: 1.5, pitch: -0.3 },
+  // ?bench: spin the box by "dragging" for a second, then shake it
+  benchScript: (frame) => {
+    if (frame >= 30 && frame < 90) {
+      drag.x += 6;
+      drag.y += 2;
+    }
+    if (frame === 240) shake = 0.6;
+  },
 });
 
 const world = new World({ gravity: { x: 0, y: -9.8, z: 0 }, restitution: 0.3, friction: 0.05 });

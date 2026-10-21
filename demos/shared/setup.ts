@@ -8,6 +8,7 @@ import {
   startLoop,
   type OrbitControlsOptions,
 } from "projector";
+import { BenchRecorder } from "./bench.js";
 import { Hud } from "./hud.js";
 
 export interface DemoOptions {
@@ -18,6 +19,8 @@ export interface DemoOptions {
   near?: number;
   far?: number;
   orbit?: OrbitControlsOptions;
+  /** Scripted input for `?bench` runs, called with the frame number before each frame. */
+  benchScript?: (frame: number) => void;
 }
 
 export interface Demo {
@@ -60,11 +63,19 @@ export function createDemo(options: DemoOptions): Demo {
     hud,
     fps,
     start(tick) {
+      const bench = BenchRecorder.fromLocation();
       startLoop((dt, time) => {
         fps.update(dt);
+        if (bench && !bench.done) options.benchScript?.(bench.frame);
+        const t0 = performance.now();
         tick(dt, time);
         orbit.update();
+        const t1 = performance.now();
         backend.render(scene, camera);
+        if (bench) {
+          const summary = bench.record(dt, t1 - t0, backend.stats.ms);
+          if (summary) hud.stat("bench", summary);
+        }
         hud.stat("fps", Math.round(fps.fps));
         hud.stat("render ms", backend.stats.ms);
         hud.stat("primitives", backend.stats.primitives);

@@ -1,0 +1,71 @@
+{
+  "frames": 120,
+  "scenarios": {
+    "cube-container": {
+      "frames": 120,
+      "primitives": 1046,
+      "batches": 38,
+      "beginPaths": 38,
+      "pathCommands": 2092,
+      "pairs": 6535,
+      "candidateTests": 43558,
+      "bodies": 1000,
+      "finite": true
+    },
+    "cube-pile-accurate": {
+      "frames": 120,
+      "primitives": 3046,
+      "batches": 40,
+      "beginPaths": 40,
+      "pathCommands": 6092,
+      "pairs": 192000,
+      "candidateTests": 1860204,
+      "bodies": 3000,
+      "finite": true
+    },
+    "cube-pile-sandbox": {
+      "frames": 120,
+      "primitives": 3046,
+      "batches": 38,
+      "beginPaths": 38,
+      "pathCommands": 6092,
+      "pairs": 29892,
+      "candidateTests": 170356,
+      "bodies": 3000,
+      "finite": true
+    },
+    "gravitation": {
+      "frames": 120,
+      "primitives": 735,
+      "batches": 214,
+      "beginPaths": 214,
+      "pathCommands": 1470,
+      "pairs": 334,
+      "candidateTests": 19002,
+      "bodies": 701,
+      "finite": true
+    },
+    "cloth": {
+      "frames": 120,
+      "primitives": 1006,
+      "batches": 719,
+      "beginPaths": 719,
+      "pathCommands": 3928,
+      "pairs": 0,
+      "candidateTests": 0,
+      "bodies": 900,
+      "finite": true
+    },
+    "flow-field": {
+      "frames": 120,
+      "primitives": 8012,
+      "batches": 33,
+      "beginPaths": 33,
+      "pathCommands": 12024,
+      "pairs": 0,
+      "candidateTests": 0,
+      "bodies": 4000,
+      "finite": true
+    }
+  }
+}
