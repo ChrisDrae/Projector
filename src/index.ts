@@ -93,7 +93,7 @@ export type {
 export { BoxContainer, PlaneCollider, SphereCollider } from "./physics/colliders.js";
 export type { BoxContainerOptions, ColliderMaterial, SphereColliderOptions } from "./physics/colliders.js";
 export { HashGrid } from "./physics/broadphase.js";
-export type { BroadphaseMode, BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
+export type { BoundsSource, BroadphaseMode, BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
 export { Attractor, Drag, VectorField } from "./physics/forces.js";
 export type { FieldFunction, VectorFieldOptions } from "./physics/forces.js";
 export { NBodyGravity, kineticEnergy } from "./physics/nbody.js";
@@ -101,6 +101,13 @@ export { DistanceConstraintSet, SpringSet } from "./physics/constraints.js";
 export type { DistanceConstraintOptions, SpringOptions } from "./physics/constraints.js";
 export { solveContacts } from "./physics/contacts.js";
 export { rayPlane, raySphere } from "./physics/raycast.js";
+export { RigidBodyStore, RigidFlags } from "./physics/rigid/rigidStore.js";
+export type { RigidBodyId, RigidBodyOptions } from "./physics/rigid/rigidStore.js";
+export { ShapeType, Shapes, boundingRadius, inertia, shapeVolume } from "./physics/rigid/shapes.js";
+export type { Shape } from "./physics/rigid/shapes.js";
+export { RigidPipeline, defaultRigidSettings } from "./physics/rigid/rigidPipeline.js";
+export type { RigidSettings, RigidStats } from "./physics/rigid/rigidPipeline.js";
+export { Manifold } from "./physics/rigid/narrowphase.js";
 export { integratePositions, integrateVelocities } from "./physics/integrate.js";
 
 // Controls

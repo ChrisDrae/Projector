@@ -4,6 +4,8 @@ import { BodyStore } from "./bodyStore.js";
 import { solveContacts } from "./contacts.js";
 import { integratePositions, integrateVelocities } from "./integrate.js";
 import { raySphere } from "./raycast.js";
+import { RigidPipeline, type RigidSettings } from "./rigid/rigidPipeline.js";
+import { RigidBodyStore, type RigidBodyId, type RigidBodyOptions } from "./rigid/rigidStore.js";
 import {
   BodyFlags,
   type BodyId,
@@ -34,6 +36,8 @@ export interface WorldOptions {
   precision?: Precision;
   initialCapacity?: number;
   broadphase?: BroadphaseOptions;
+  /** Rigid body solver settings (contact margin, sleeping, damping...). */
+  rigid?: Partial<RigidSettings>;
 }
 
 export interface RaycastHit {
@@ -56,6 +60,9 @@ export interface StepStats {
   /** Milliseconds spent in the last step() call, total and in the broadphase. */
   stepMs: number;
   broadphaseMs: number;
+  rigidBodies: number;
+  /** Rigid contact points solved in the last fixed step. */
+  rigidContacts: number;
 }
 
 /**
@@ -65,6 +72,9 @@ export interface StepStats {
 export class World {
   readonly bodies: BodyStore;
   readonly broadphase: HashGrid;
+  /** Rigid bodies (boxes, spheres, capsules that rotate), simulated alongside the particles. */
+  readonly rigid: RigidBodyStore = new RigidBodyStore();
+  readonly rigidPipeline: RigidPipeline = new RigidPipeline();
   gravity: Vec3;
   fixedDt: number;
   maxSubSteps: number;
@@ -78,7 +88,15 @@ export class World {
   readonly colliders: Collider[] = [];
   readonly forces: ForceGenerator[] = [];
   readonly constraints: Constraint[] = [];
-  readonly stats: StepStats = { substeps: 0, bodies: 0, pairs: 0, stepMs: 0, broadphaseMs: 0 };
+  readonly stats: StepStats = {
+    substeps: 0,
+    bodies: 0,
+    pairs: 0,
+    stepMs: 0,
+    broadphaseMs: 0,
+    rigidBodies: 0,
+    rigidContacts: 0,
+  };
   /** Solver parameters, refreshed every fixed step from the fields above. */
   readonly settings: SolverSettings = {
     restitution: 0,
@@ -103,6 +121,20 @@ export class World {
     this.friction = options.friction ?? 0;
     this.linearDamping = options.linearDamping ?? 0;
     this.timeScale = options.timeScale ?? 1;
+    if (options.rigid) Object.assign(this.rigidPipeline.settings, options.rigid);
+  }
+
+  /**
+   * Adds a rigid body. Restitution and friction default to the world's (friction 0.5 when the world has
+   * none: rigid bodies without friction slide and spin forever). Returns its id; use world.rigid to read
+   * and change it.
+   */
+  addRigidBody(o: RigidBodyOptions): RigidBodyId {
+    return this.rigid.add(o, this.restitution, this.friction > 0 ? this.friction : 0.5);
+  }
+
+  removeRigidBody(id: RigidBodyId): boolean {
+    return this.rigid.remove(id);
   }
 
   addBody(o: BodyOptions): BodyId {
@@ -338,6 +370,9 @@ export class World {
 
     for (const f of this.forces) f.apply(s, dt, this.time);
     integrateVelocities(s, g, dt, this.linearDamping);
+    // Rigid bodies only cost anything when there are some
+    const rigid = this.rigid.count > 0 ? this.rigidPipeline : null;
+    if (rigid) rigid.integrateVelocities(this, dt);
     integratePositions(s, dt);
     for (const c of this.colliders) c.update(dt);
 
@@ -345,6 +380,7 @@ export class World {
     this.broadphase.build(s);
     this.broadphase.findPairs(s);
     this.stats.broadphaseMs += performance.now() - t0;
+    if (rigid) rigid.detect(this, dt, this.broadphase.collisionMask);
 
     const pairs = this.broadphase.pairs;
     const pairCount = this.broadphase.pairCount;
@@ -353,7 +389,11 @@ export class World {
       for (const c of this.constraints) c.solve(s, dt);
       // Colliders last, so nothing ends a step outside its container
       for (const c of this.colliders) c.solve(s, set);
+      if (rigid) rigid.solve(this);
     }
+    if (rigid) rigid.integratePositions(this, dt);
+    this.stats.rigidBodies = this.rigid.count;
+    this.stats.rigidContacts = rigid ? rigid.stats.contacts : 0;
 
     s.force.fill(0, 0, s.count * 3);
     this.time += dt;

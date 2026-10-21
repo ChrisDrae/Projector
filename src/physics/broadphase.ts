@@ -1,5 +1,17 @@
 import { nextPow2 } from "../math/scalar.js";
-import type { BodyStore } from "./bodyStore.js";
+/**
+ * What the broadphase reads: positions and radii of bodies, from a BodyStore or the bounding spheres of
+ * rigid bodies. Bodies without the Collides flag are left out.
+ */
+export interface BoundsSource {
+  readonly count: number;
+  readonly capacity: number;
+  readonly maxRadius: number;
+  readonly pos: ArrayLike<number>;
+  readonly radius: ArrayLike<number>;
+  readonly flags: ArrayLike<number>;
+  readonly group: Uint8Array;
+}
 import { BodyFlags } from "./types.js";
 
 export type BroadphaseMode = "accurate" | "sandbox";
@@ -73,6 +85,8 @@ export class HashGrid {
    * null, the default, means every group collides with every other and costs nothing.
    */
   collisionMask: Uint32Array | null = null;
+  /** Results of the last query(). */
+  queryResult: Int32Array = new Int32Array(0);
   /** Body index pairs (i < j) found by the last findPairs(). */
   pairs: Int32Array = new Int32Array(0);
   pairCount: number = 0;
@@ -109,7 +123,7 @@ export class HashGrid {
     return 1 + MARGIN;
   }
 
-  build(s: BodyStore): void {
+  build(s: BoundsSource): void {
     const n = s.count;
     this.frame++;
     // Cells must span a full contact distance or the 27-cell neighborhood could miss pairs
@@ -166,7 +180,7 @@ export class HashGrid {
     }
   }
 
-  findPairs(s: BodyStore): void {
+  findPairs(s: BoundsSource): void {
     this.pairCount = 0;
     this.stats.droppedPairs = 0;
     this.stats.saturated = false;
@@ -250,6 +264,54 @@ export class HashGrid {
     this.stats.saturated = this.stats.droppedPairs > 0;
     this.stats.candidateTests = tests;
     this.stats.pairs = this.pairCount;
+  }
+
+  /**
+   * Indices of the bodies in the grid cells around a sphere (x, y, z, r), written to `queryResult`:
+   * candidates near it, whose distance the caller still checks. Uses the grid of the last build(); when
+   * the sphere spans more cells than there are bodies, scanning them all is cheaper and that is done.
+   * Returns the number of candidates.
+   */
+  query(s: BoundsSource, x: number, y: number, z: number, r: number): number {
+    const n = s.count;
+    if (n === 0 || this.cellSize <= 0) return 0;
+    if (this.queryResult.length < n) this.queryResult = new Int32Array(Math.max(n, this.queryResult.length * 2));
+    const out = this.queryResult;
+    const inv = 1 / this.cellSize;
+    const x0 = Math.floor((x - r) * inv);
+    const y0 = Math.floor((y - r) * inv);
+    const z0 = Math.floor((z - r) * inv);
+    const x1 = Math.floor((x + r) * inv);
+    const y1 = Math.floor((y + r) * inv);
+    const z1 = Math.floor((z + r) * inv);
+    const cells = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
+    let k = 0;
+    if (cells > n) {
+      const pos = s.pos;
+      const flags = s.flags;
+      const reach = r + s.maxRadius;
+      for (let i = 0; i < n; i++) {
+        if (!(flags[i] & BodyFlags.Collides)) continue;
+        const o = i * 3;
+        if (Math.abs(pos[o] - x) > reach || Math.abs(pos[o + 1] - y) > reach || Math.abs(pos[o + 2] - z) > reach) continue;
+        out[k++] = i;
+      }
+      return k;
+    }
+    const mask = this.tableSize - 1;
+    const mark = this.nextStamp();
+    const { cellStart, cellEnd, entries, stamp } = this;
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cz = z0; cz <= z1; cz++) {
+          const b = hash(cx, cy, cz, mask);
+          if (stamp[b] === mark) continue;
+          stamp[b] = mark;
+          for (let e = cellStart[b]; e < cellEnd[b]; e++) out[k++] = entries[e];
+        }
+      }
+    }
+    return k;
   }
 
   /** Drops pairs whose groups don't collide, keeping the rest in order. */
