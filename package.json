@@ -1,8 +1,8 @@
 {
   "name": "projector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Canvas 2D 3D rendering and physics simulation library",
+  "description": "A TypeScript framework for 3D physics simulations on the Canvas 2D API: particles, rigid bodies, lights, shadows",
   "module": "./dist/projector.js",
   "types": "./dist/types/index.d.ts",
   "exports": {
@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "build:demos": "vite build --mode demos",
     "preview": "vite preview --mode demos",
     "typecheck": "tsc -p tsconfig.json && tsc -p perf/tsconfig.json",
@@ -36,8 +37,11 @@
     "canvas",
     "3d",
     "physics",
+    "rigid-body",
+    "particles",
     "simulation",
-    "particles"
+    "lighting",
+    "game"
   ],
   "author": "",
   "license": "ISC",

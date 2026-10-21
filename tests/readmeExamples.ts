@@ -99,3 +99,44 @@ sim.scene.add(new VelocityArrows(sim.world));
 const water = sim.add(new ParticleGroup({ radius: 0.02, color: "#7fb6ff" }));
 const oil = sim.add(new ParticleGroup({ radius: 0.02, color: "#e0a23a" }));
 sim.world.setCollision(water.group, oil.group, false);
+
+// "Using Projector in your own project"
+class Player extends RigidSphere {
+  constructor(position: { x: number; y: number; z: number }) {
+    super(0.25, { position, mass: 2, material: { color: "#f1eeee", shading: "smooth", specular: 0.6 } });
+    this.addLight(new PointLight({ x: 0, y: 0.6, z: 0 }, { color: "#ffb26b", intensity: 1.5, distance: 4 }));
+  }
+
+  override update(): void {
+    const kb = this.sim?.keyboard;
+    if (!kb) return;
+    this.applyForce({ x: kb.axis("ArrowLeft", "ArrowRight") * 6, y: 0, z: kb.axis("ArrowDown", "ArrowUp") * 6 });
+  }
+}
+
+class CrateSpawner extends SimObject {
+  private timer = 0;
+  private spawned = 0;
+
+  override update(dt: number): void {
+    this.timer += dt;
+    if (this.timer < 1 || this.spawned >= 10) return;
+    this.timer = 0;
+    this.spawned++;
+    this.sim!.add(new RigidBox(0.4, { position: { x: Math.random() * 4 - 2, y: 4, z: Math.random() * 4 - 2 } }));
+  }
+}
+
+const game = new Simulation({
+  canvas: document.querySelector("canvas")!,
+  scene: { background: "#1d2026" },
+  orbit: { button: 2, distance: 9, pitch: -0.5 },
+});
+game.scene.lights = [
+  new HemisphereLight("#9db4ff", "#3b3127", 0.35),
+  new DirectionalLight({ x: -0.4, y: -1, z: 0.3 }, 0.7, { castShadow: true }),
+];
+game.add(new Ground({ style: "plane", size: 10, color: "#4b4f58", opacity: 1 }));
+game.add(new Player({ x: 0, y: 0.25, z: 0 }));
+game.add(new CrateSpawner());
+game.start();

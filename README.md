@@ -35,6 +35,76 @@ npm run dev
 | `npm run perf` | Times every demo against `perf/baseline.json` (see [Performance](#performance)) |
 | `npm run perf:baseline` / `perf:rebaseline` | Records baselines for new scenarios / re-records all |
 
+## Using Projector in your own project
+
+Projector ships as one ES module with type declarations (`dist/`) and has no runtime dependencies. Any
+bundler works; with Vite:
+
+```
+npm create vite@latest my-game -- --template vanilla-ts
+cd my-game
+npm install ../Projector/projector-0.2.0.tgz
+```
+
+Ways to install it:
+
+| From | How |
+| --- | --- |
+| A package file | `npm pack` here (builds and writes `projector-0.2.0.tgz`), then `npm install <path to the .tgz>` there |
+| GitHub | `npm install github:ChrisDrae/Projector#feature/engine`: npm clones the branch and builds it |
+| This folder, while changing both | `npm install ../Projector` links it; run `npm run build` here after each change |
+
+A starting point for a game: a ball you roll with the arrow keys, carrying its own light, and crates falling
+from the sky. The canvas fills whatever size CSS gives it (e.g. `width: 100vw; height: 100vh`).
+
+```ts
+import { DirectionalLight, Ground, HemisphereLight, PointLight, RigidBox, RigidSphere, SimObject, Simulation, type Vec3 } from "projector";
+
+/** The player: a ball pushed by the arrow keys, carrying its own light. */
+class Player extends RigidSphere {
+  constructor(position: Vec3) {
+    super(0.25, { position, mass: 2, material: { color: "#f1eeee", shading: "smooth", specular: 0.6 } });
+    this.addLight(new PointLight({ x: 0, y: 0.6, z: 0 }, { color: "#ffb26b", intensity: 1.5, distance: 4 }));
+  }
+
+  override update(): void {
+    const kb = this.sim?.keyboard;
+    if (!kb) return;
+    this.applyForce({ x: kb.axis("ArrowLeft", "ArrowRight") * 6, y: 0, z: kb.axis("ArrowDown", "ArrowUp") * 6 });
+  }
+}
+
+/** Drops a crate every second, ten in all. */
+class CrateSpawner extends SimObject {
+  private timer = 0;
+  private spawned = 0;
+
+  override update(dt: number): void {
+    this.timer += dt;
+    if (this.timer < 1 || this.spawned >= 10) return;
+    this.timer = 0;
+    this.spawned++;
+    this.sim!.add(new RigidBox(0.4, { position: { x: Math.random() * 4 - 2, y: 4, z: Math.random() * 4 - 2 } }));
+  }
+}
+
+const game = new Simulation({
+  canvas: document.querySelector("canvas")!,
+  scene: { background: "#1d2026" },
+  orbit: { button: 2, distance: 9, pitch: -0.5 },
+});
+game.scene.lights = [
+  new HemisphereLight("#9db4ff", "#3b3127", 0.35),
+  new DirectionalLight({ x: -0.4, y: -1, z: 0.3 }, 0.7, { castShadow: true }),
+];
+game.add(new Ground({ style: "plane", size: 10, color: "#4b4f58", opacity: 1 }));
+game.add(new Player({ x: 0, y: 0.25, z: 0 }));
+game.add(new CrateSpawner());
+game.start();
+```
+
+The demos in `demos/` are fuller examples: each `setup.ts` builds a scene from these pieces.
+
 ## Demos
 
 - **Cube container**: thousands of spheres inside a box you can spin and throw around. Switch the broadphase
