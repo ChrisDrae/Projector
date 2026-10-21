@@ -2,7 +2,8 @@ import * as mat4 from "../math/mat4.js";
 import type { Mat4 } from "../math/mat4.js";
 import { Transform } from "../math/transform.js";
 import type { Collider, Constraint, ForceGenerator } from "../physics/types.js";
-import type { DirectionalLight } from "../scene/light.js";
+import type { Vec3 } from "../math/vec3.js";
+import type { Light } from "../scene/light.js";
 import type { SceneNode } from "../scene/scene.js";
 import type { Simulation } from "./simulation.js";
 
@@ -11,7 +12,7 @@ type Resource =
   | { kind: "collider"; collider: Collider; persistent: boolean }
   | { kind: "force"; force: ForceGenerator; persistent: boolean }
   | { kind: "constraint"; constraint: Constraint; persistent: boolean }
-  | { kind: "light"; light: DirectionalLight; persistent: boolean };
+  | { kind: "light"; light: Light; persistent: boolean; local: Vec3 | null; localDir: Vec3 | null };
 
 export interface SimObjectOptions {
   name?: string;
@@ -98,13 +99,24 @@ export class SimObject {
     return constraint;
   }
 
-  addLight<T extends DirectionalLight>(light: T): T {
-    this.own({ kind: "light", light, persistent: this.simulation === null });
+  /**
+   * Adds a light. Point and spot lights follow the object (unless follow is false): their position, and
+   * a spot light's direction, are then relative to the object and recomputed every frame.
+   */
+  addLight<T extends Light>(light: T, follow: boolean = true): T {
+    const positional = follow && (light.kind === "point" || light.kind === "spot");
+    this.own({
+      kind: "light",
+      light,
+      persistent: this.simulation === null,
+      local: positional ? { ...light.position } : null,
+      localDir: positional && light.kind === "spot" ? { ...light.direction } : null,
+    });
     return light;
   }
 
   /** Removes an owned resource added with one of the add methods. */
-  removeResource(resource: SceneNode | Collider | ForceGenerator | Constraint | DirectionalLight): void {
+  removeResource(resource: SceneNode | Collider | ForceGenerator | Constraint | Light): void {
     const i = this.resources.findIndex((r) => resourceOf(r) === resource);
     if (i < 0) return;
     if (this.simulation) this.unregister(this.resources[i], this.simulation);
@@ -169,7 +181,25 @@ export class SimObject {
       this.shown = shown;
       for (const r of this.resources) if (r.kind === "node") r.node.visible = shown;
     }
+    for (const r of this.resources) {
+      if (r.kind === "light" && r.local) this.placeLight(r.light, r.local, r.localDir);
+    }
     for (let i = 0; i < this.children.length; i++) this.children[i].syncTree(this.worldMatrix, shown);
+  }
+
+  private placeLight(light: Light, local: Vec3, localDir: Vec3 | null): void {
+    if (light.kind !== "point" && light.kind !== "spot") return;
+    const m = this.worldMatrix;
+    const p = light.position;
+    p.x = m[0] * local.x + m[4] * local.y + m[8] * local.z + m[12];
+    p.y = m[1] * local.x + m[5] * local.y + m[9] * local.z + m[13];
+    p.z = m[2] * local.x + m[6] * local.y + m[10] * local.z + m[14];
+    if (localDir && light.kind === "spot") {
+      const d = light.direction;
+      d.x = m[0] * localDir.x + m[4] * localDir.y + m[8] * localDir.z;
+      d.y = m[1] * localDir.x + m[5] * localDir.y + m[9] * localDir.z;
+      d.z = m[2] * localDir.x + m[6] * localDir.y + m[10] * localDir.z;
+    }
   }
 
   private own(r: Resource): void {

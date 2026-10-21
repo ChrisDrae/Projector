@@ -5,14 +5,16 @@ import type { Material } from "../../scene/material.js";
 import type { Mesh } from "../../scene/mesh.js";
 import { Layer, type LineSet, type MeshNode, type PointCloud, type SortMode, type SphereCloud } from "../../scene/nodes.js";
 import type { Scene } from "../../scene/scene.js";
-import { mix, parseColor, shade, toCss, type RGB } from "../color.js";
+import { colorOf, mix, parseColor, shade, toCss, type RGB } from "../color.js";
 import { clipPolygonNear, clipSegmentNear } from "./clip.js";
+import { Lighting, quantize, quantizedCss } from "./lighting.js";
 import { createProjection, updateProjection, type ProjectionParams } from "./projection.js";
 import { RenderQueue } from "./renderQueue.js";
 
 /** Quantized brightness levels for flat shading (each level is one style, so this bounds the batch count). */
 export const SHADE_LEVELS = 32;
-const MAX_LIGHTS = 8;
+/** Quantized fog levels for lines. */
+const FOG_LEVELS = 16;
 
 interface MeshStyles {
   color: string;
@@ -20,8 +22,23 @@ interface MeshStyles {
   lineWidth: number;
   opacity: number;
   edges: boolean;
+  emissive: string | null;
+  /** Brightness model: one style per shade of the base color. */
   faces: Int32Array;
   line: number;
+  /** Base and emissive color, 0..1 per channel. */
+  baseR: number;
+  baseG: number;
+  baseB: number;
+  emR: number;
+  emG: number;
+  emB: number;
+  edgeCss: string | null;
+  /** Full lighting model: quantized color key -> style id (-1 until first used), shared by alike materials. */
+  lut: Int32Array;
+  /** Line styles per fog level, for the fog color they were made with. */
+  lineFog: Int32Array | null;
+  lineFogCss: string;
 }
 
 interface CloudStyles {
@@ -50,6 +67,11 @@ export interface EmitContext {
   project(x: number, y: number, z: number, out: { x: number; y: number }): number;
   /** Lambert brightness in [0, 1] of a world-space unit normal under the scene lights. */
   brightness(nx: number, ny: number, nz: number): number;
+  /**
+   * Fill style of a surface with this material at world point (x, y, z) with world-space unit normal n,
+   * under all scene lights and fog: for custom geometry shaded like meshes.
+   */
+  litStyle(material: Material, nx: number, ny: number, nz: number, x: number, y: number, z: number): number;
 }
 
 /**
@@ -72,14 +94,13 @@ export class SoftwareEmitter implements EmitContext {
   private readonly seg: Float64Array = new Float64Array(6);
   private cloud: Float64Array = new Float64Array(4 * 256);
   private cloudIndex: Int32Array = new Int32Array(256);
-  private readonly lightDir: Float64Array = new Float64Array(3 * MAX_LIGHTS);
-  private readonly lightIntensity: Float64Array = new Float64Array(MAX_LIGHTS);
-  private lightCount: number = 0;
-  private ambient: number = 0;
+  readonly lighting: Lighting = new Lighting();
   private background: RGB = { r: 0, g: 0, b: 0 };
   private backgroundCss: string = "";
   private readonly meshStyles: WeakMap<Material, MeshStyles> = new WeakMap();
   private readonly cloudStyles: WeakMap<object, CloudStyles> = new WeakMap();
+  private readonly lineFogStyles: WeakMap<LineSet, CloudStyles> = new WeakMap();
+  private readonly luts: Map<string, Int32Array> = new Map();
 
   constructor(queue: RenderQueue = new RenderQueue()) {
     this.queue = queue;
@@ -121,21 +142,7 @@ export class SoftwareEmitter implements EmitContext {
       this.background = parseColor(scene.background);
     }
 
-    const v = camera.viewMatrix;
-    this.ambient = scene.ambient.intensity;
-    this.lightCount = Math.min(scene.lights.length, MAX_LIGHTS);
-    for (let l = 0; l < this.lightCount; l++) {
-      const light = scene.lights[l];
-      const d = light.direction;
-      const x = v[0] * d.x + v[4] * d.y + v[8] * d.z;
-      const y = v[1] * d.x + v[5] * d.y + v[9] * d.z;
-      const z = v[2] * d.x + v[6] * d.y + v[10] * d.z;
-      const len = Math.hypot(x, y, z) || 1;
-      this.lightDir[l * 3] = x / len;
-      this.lightDir[l * 3 + 1] = y / len;
-      this.lightDir[l * 3 + 2] = z / len;
-      this.lightIntensity[l] = light.intensity;
-    }
+    this.lighting.update(scene, camera.viewMatrix);
   }
 
   emitMesh(node: MeshNode, camera: PerspectiveCamera = this.camera): void {
@@ -178,6 +185,10 @@ export class SoftwareEmitter implements EmitContext {
 
     const styles = this.meshStylesFor(mat);
     const faceCount = mesh.faceCount;
+    const lighting = this.lighting;
+    const lit = mat.shading !== "unlit";
+    // Scenes and materials without any of the newer lighting features keep the original brightness model
+    const simple = lighting.simple && mat.specular <= 0 && mat.emissive === null;
 
     if (!mat.wireframe && faceCount > 0) {
       const fi = mesh.faceIndices;
@@ -237,10 +248,17 @@ export class SoftwareEmitter implements EmitContext {
           nz = -nz;
         }
 
-        let level = SHADE_LEVELS - 1;
-        if (mat.flatShading) {
+        let style: number;
+        if (simple || (!lit && !lighting.fog)) {
+          let level = SHADE_LEVELS - 1;
+          if (lit) {
+            const len = Math.hypot(nx, ny, nz) || 1;
+            level = Math.round(lighting.brightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
+          }
+          style = styles.faces[level];
+        } else {
           const len = Math.hypot(nx, ny, nz) || 1;
-          level = Math.round(this.viewBrightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
+          style = this.shadeFace(styles, mat, lit, nx / len, ny / len, nz / len, cx, cy, cz);
         }
 
         let src = poly;
@@ -259,7 +277,7 @@ export class SoftwareEmitter implements EmitContext {
           screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
           screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
         }
-        q.pushPolygon(layer, styles.faces[level], sortMode === "object" ? objectDepth : cz, screen, count);
+        q.pushPolygon(layer, style, sortMode === "object" ? objectDepth : cz, screen, count);
       }
     }
 
@@ -279,10 +297,11 @@ export class SoftwareEmitter implements EmitContext {
           this.culled++;
           continue;
         }
+        const depth = (seg[2] + seg[5]) / 2;
         q.pushLine(
           layer,
-          styles.line,
-          (seg[2] + seg[5]) / 2,
+          lighting.fog ? this.foggedLine(styles, depth) : styles.line,
+          depth,
           p.cx + (p.sx * seg[0]) / seg[2],
           p.cy - (p.sy * seg[1]) / seg[2],
           p.cx + (p.sx * seg[3]) / seg[5],
@@ -344,6 +363,7 @@ export class SoftwareEmitter implements EmitContext {
     if (k === 0) return;
 
     const levels = Math.max(1, Math.floor(node.shadeLevels));
+    const fog = this.lighting.fog;
     const ids = this.cloudStylesFor(node, node.palette, levels, node.depthCue);
     const scale = zmax > zmin ? (levels - 1) / (zmax - zmin) : 0;
     const pal = node.palette.length;
@@ -351,7 +371,8 @@ export class SoftwareEmitter implements EmitContext {
     const q = this.queue;
     for (let j = 0; j < k; j++) {
       const z = cloud[j * 4 + 3];
-      const level = Math.round((z - zmin) * scale);
+      // With fog, spheres fade by their absolute depth; without, relative to the nearest and farthest
+      const level = fog ? Math.round(this.lighting.fogFactor(z) * (levels - 1)) : Math.round((z - zmin) * scale);
       let c = 0;
       if (colorIndex) {
         c = colorIndex(index[j]) % pal;
@@ -404,12 +425,14 @@ export class SoftwareEmitter implements EmitContext {
     if (k === 0) return;
 
     const levels = Math.max(1, Math.floor(node.shadeLevels));
+    const fog = this.lighting.fog;
     const ids = this.cloudStylesFor(node, [node.color], levels, node.depthCue);
     const scale = zmax > zmin ? (levels - 1) / (zmax - zmin) : 0;
     const q = this.queue;
     for (let j = 0; j < k; j++) {
       const z = cloud[j * 4 + 3];
-      q.pushPoint(node.layer, ids[Math.round((z - zmin) * scale)], z, cloud[j * 4], cloud[j * 4 + 1], size);
+      const level = fog ? Math.round(this.lighting.fogFactor(z) * (levels - 1)) : Math.round((z - zmin) * scale);
+      q.pushPoint(node.layer, ids[level], z, cloud[j * 4], cloud[j * 4 + 1], size);
     }
   }
 
@@ -420,6 +443,7 @@ export class SoftwareEmitter implements EmitContext {
     const seg = this.seg;
     const pts = node.positions;
     const style = this.queue.styles.intern(null, node.color, node.width, node.opacity);
+    const fogIds = this.lighting.fog ? this.lineSetFog(node) : null;
     const count = Math.min(node.count, node.capacity);
     for (let s = 0; s < count; s++) {
       const o = s * 6;
@@ -435,10 +459,11 @@ export class SoftwareEmitter implements EmitContext {
         this.culled++;
         continue;
       }
+      const depth = (seg[2] + seg[5]) / 2;
       this.queue.pushLine(
         node.layer,
-        style,
-        (seg[2] + seg[5]) / 2,
+        fogIds ? fogIds[Math.round(this.lighting.fogFactor(depth) * (FOG_LEVELS - 1))] : style,
+        depth,
         p.cx + (p.sx * seg[0]) / seg[2],
         p.cy - (p.sy * seg[1]) / seg[2],
         p.cx + (p.sx * seg[3]) / seg[5],
@@ -548,22 +573,94 @@ export class SoftwareEmitter implements EmitContext {
 
   brightness(nx: number, ny: number, nz: number): number {
     const v = this.camera.viewMatrix;
-    return this.viewBrightness(
+    return this.lighting.brightness(
       v[0] * nx + v[4] * ny + v[8] * nz,
       v[1] * nx + v[5] * ny + v[9] * nz,
       v[2] * nx + v[6] * ny + v[10] * nz,
     );
   }
 
-  /** Lambert brightness for a unit view-space normal. */
-  private viewBrightness(nx: number, ny: number, nz: number): number {
-    let sum = this.ambient;
-    const d = this.lightDir;
-    for (let l = 0; l < this.lightCount; l++) {
-      const facing = -(nx * d[l * 3] + ny * d[l * 3 + 1] + nz * d[l * 3 + 2]);
-      if (facing > 0) sum += facing * this.lightIntensity[l];
+  litStyle(material: Material, nx: number, ny: number, nz: number, x: number, y: number, z: number): number {
+    const v = this.camera.viewMatrix;
+    const styles = this.meshStylesFor(material);
+    return this.shadeFace(
+      styles,
+      material,
+      material.shading !== "unlit",
+      v[0] * nx + v[4] * ny + v[8] * nz,
+      v[1] * nx + v[5] * ny + v[9] * nz,
+      v[2] * nx + v[6] * ny + v[10] * nz,
+      v[0] * x + v[4] * y + v[8] * z + v[12],
+      v[1] * x + v[5] * y + v[9] * z + v[13],
+      v[2] * x + v[6] * y + v[10] * z + v[14],
+    );
+  }
+
+  /** Full lighting model for a view-space unit normal and point: a style from the material's color table. */
+  private shadeFace(
+    styles: MeshStyles,
+    mat: Material,
+    lit: boolean,
+    nx: number,
+    ny: number,
+    nz: number,
+    px: number,
+    py: number,
+    pz: number,
+  ): number {
+    const l = this.lighting;
+    let r: number;
+    let g: number;
+    let b: number;
+    if (lit) {
+      l.shade(nx, ny, nz, px, py, pz, styles.baseR, styles.baseG, styles.baseB, mat.specular, mat.shininess, styles.emR, styles.emG, styles.emB);
+      r = l.r;
+      g = l.g;
+      b = l.b;
+    } else {
+      const f = l.fogFactor(pz);
+      r = styles.baseR + (l.fogR - styles.baseR) * f;
+      g = styles.baseG + (l.fogG - styles.baseG) * f;
+      b = styles.baseB + (l.fogB - styles.baseB) * f;
     }
-    return sum < 0 ? 0 : sum > 1 ? 1 : sum;
+    const key = quantize(r, g, b);
+    let id = styles.lut[key];
+    if (id < 0) {
+      id = this.queue.styles.intern(quantizedCss(key), styles.edgeCss, styles.lineWidth, styles.opacity);
+      styles.lut[key] = id;
+    }
+    return id;
+  }
+
+  /** Line style of a mesh's edges at a view depth, faded toward the fog color. */
+  private foggedLine(styles: MeshStyles, depth: number): number {
+    const l = this.lighting;
+    if (!styles.lineFog || styles.lineFogCss !== l.fogCss) {
+      styles.lineFog = this.fogRamp(styles.color, styles.lineWidth, styles.opacity);
+      styles.lineFogCss = l.fogCss;
+    }
+    return styles.lineFog[Math.round(l.fogFactor(depth) * (FOG_LEVELS - 1))];
+  }
+
+  private lineSetFog(node: LineSet): Int32Array {
+    const key = `${node.color}|${node.width}|${node.opacity}|${this.lighting.fogCss}`;
+    const cached = this.lineFogStyles.get(node);
+    if (cached && cached.key === key) return cached.ids;
+    const ids = this.fogRamp(node.color, node.width, node.opacity);
+    this.lineFogStyles.set(node, { key, ids });
+    return ids;
+  }
+
+  /** Stroke styles from a color to the fog color in FOG_LEVELS steps. */
+  private fogRamp(color: string, width: number, opacity: number): Int32Array {
+    const base = parseColor(color);
+    const l = this.lighting;
+    const fog: RGB = { r: l.fogR * 255, g: l.fogG * 255, b: l.fogB * 255 };
+    const ids = new Int32Array(FOG_LEVELS);
+    for (let k = 0; k < FOG_LEVELS; k++) {
+      ids[k] = this.queue.styles.intern(null, toCss(mix(base, fog, k / (FOG_LEVELS - 1))), width, opacity);
+    }
+    return ids;
   }
 
   private meshStylesFor(mat: Material): MeshStyles {
@@ -574,7 +671,8 @@ export class SoftwareEmitter implements EmitContext {
       cached.edgeColor === mat.edgeColor &&
       cached.lineWidth === mat.lineWidth &&
       cached.opacity === mat.opacity &&
-      cached.edges === mat.edges
+      cached.edges === mat.edges &&
+      cached.emissive === mat.emissive
     ) {
       return cached;
     }
@@ -586,30 +684,57 @@ export class SoftwareEmitter implements EmitContext {
       const fill = toCss(shade(base, k / (SHADE_LEVELS - 1)));
       faces[k] = table.intern(fill, mat.edges ? edge : null, mat.lineWidth, mat.opacity);
     }
+    const edgeCss = mat.edges ? edge : null;
+    const lutKey = `${edgeCss}|${mat.lineWidth}|${mat.opacity}`;
+    let lut = this.luts.get(lutKey);
+    if (!lut) {
+      lut = new Int32Array(32768).fill(-1);
+      this.luts.set(lutKey, lut);
+    }
+    const em = mat.emissive ? colorOf(mat.emissive) : null;
     const styles: MeshStyles = {
       color: mat.color,
       edgeColor: mat.edgeColor,
       lineWidth: mat.lineWidth,
       opacity: mat.opacity,
       edges: mat.edges,
+      emissive: mat.emissive,
       faces,
       line: table.intern(null, mat.color, mat.lineWidth, mat.opacity),
+      baseR: base.r / 255,
+      baseG: base.g / 255,
+      baseB: base.b / 255,
+      emR: em ? em.r / 255 : 0,
+      emG: em ? em.g / 255 : 0,
+      emB: em ? em.b / 255 : 0,
+      edgeCss,
+      lut,
+      lineFog: null,
+      lineFogCss: "",
     };
     this.meshStyles.set(mat, styles);
     return styles;
   }
 
-  /** One fill style per (palette color, depth level), fading toward the background with depth. */
+  /**
+   * One fill style per (palette color, depth level), fading toward the background with depth by
+   * `depthCue`, or all the way to the fog color when the scene has fog.
+   */
   private cloudStylesFor(owner: object, palette: string[], levels: number, depthCue: number): Int32Array {
-    const key = `${palette.join("|")}#${levels}#${depthCue}#${this.backgroundCss}`;
+    const l = this.lighting;
+    const key = l.fog
+      ? `${palette.join("|")}#${levels}#fog#${l.fogCss}`
+      : `${palette.join("|")}#${levels}#${depthCue}#${this.backgroundCss}`;
     const cached = this.cloudStyles.get(owner);
     if (cached && cached.key === key) return cached.ids;
+    const target: RGB = l.fog ? { r: l.fogR * 255, g: l.fogG * 255, b: l.fogB * 255 } : this.background;
+    const cue = l.fog ? 1 : depthCue;
     const ids = new Int32Array(palette.length * levels);
     for (let c = 0; c < palette.length; c++) {
       const base = parseColor(palette[c]);
-      for (let l = 0; l < levels; l++) {
-        const t = levels > 1 ? (l / (levels - 1)) * depthCue : 0;
-        ids[c * levels + l] = this.queue.styles.intern(toCss(mix(base, this.background, t)));
+      for (let k = 0; k < levels; k++) {
+        const t = levels > 1 ? (k / (levels - 1)) * cue : 0;
+        ids[c * levels + k] = this.queue.styles.intern(toCss(mix(base, target, t)));
       }
     }
     this.cloudStyles.set(owner, { key, ids });

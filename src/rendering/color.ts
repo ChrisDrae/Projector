@@ -77,12 +77,18 @@ function parseUncached(css: string): RGB {
 
 /** Parses hex, rgb()/rgba(), hsl()/hsla() and a few named colors (alpha is ignored). */
 export function parseColor(css: string): RGB {
+  const c = colorOf(css);
+  return { r: c.r, g: c.g, b: c.b };
+}
+
+/** Like parseColor, but returns the shared cached value instead of a copy: no allocation per call. */
+export function colorOf(css: string): Readonly<RGB> {
   let c = cache.get(css);
   if (!c) {
     c = parseUncached(css);
     cache.set(css, c);
   }
-  return { r: c.r, g: c.g, b: c.b };
+  return c;
 }
 
 export function toCss(c: RGB): string {

@@ -14,8 +14,24 @@ export { PerspectiveCamera } from "./scene/camera.js";
 export type { PerspectiveCameraOptions } from "./scene/camera.js";
 export { Mesh } from "./scene/mesh.js";
 export { Material } from "./scene/material.js";
-export type { MaterialOptions, Side } from "./scene/material.js";
-export { AmbientLight, DirectionalLight, lambert } from "./scene/light.js";
+export type { MaterialOptions, Shading, Side } from "./scene/material.js";
+export {
+  AmbientLight,
+  DirectionalLight,
+  HemisphereLight,
+  PointLight,
+  SpotLight,
+  attenuation,
+  lambert,
+} from "./scene/light.js";
+export type {
+  DirectionalLightOptions,
+  Light,
+  LightOptions,
+  PointLightOptions,
+  PositionalLight,
+  SpotLightOptions,
+} from "./scene/light.js";
 export { Layer, LineSet, MeshNode, PointCloud, SphereCloud } from "./scene/nodes.js";
 export type {
   CustomNode,
@@ -27,17 +43,18 @@ export type {
   SphereSource,
 } from "./scene/nodes.js";
 export { Scene } from "./scene/scene.js";
-export type { SceneNode, SceneOptions } from "./scene/scene.js";
+export type { Fog, SceneNode, SceneOptions } from "./scene/scene.js";
 
 // Rendering
 export type { RenderBackend, RenderStats } from "./rendering/backend.js";
-export { mix, parseColor, shade, toCss } from "./rendering/color.js";
+export { colorOf, mix, parseColor, shade, toCss } from "./rendering/color.js";
 export type { RGB } from "./rendering/color.js";
 export { Canvas2DBackend } from "./rendering/canvas2d/canvas2dBackend.js";
 export type { Canvas2DBackendOptions } from "./rendering/canvas2d/canvas2dBackend.js";
 export { Rasterizer } from "./rendering/canvas2d/rasterizer.js";
 export type { Canvas2DLike } from "./rendering/canvas2d/rasterizer.js";
 export { SoftwareEmitter, SHADE_LEVELS } from "./rendering/software/emit.js";
+export { Lighting, MAX_LIGHTS } from "./rendering/software/lighting.js";
 export type { EmitContext } from "./rendering/software/emit.js";
 export { PrimitiveKind, RenderQueue, StyleTable } from "./rendering/software/renderQueue.js";
 export type { Style } from "./rendering/software/renderQueue.js";
