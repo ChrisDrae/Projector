@@ -4,18 +4,7 @@
 
 </div>
 
-A TypeScript framework for 3D physics simulations on the Canvas 2D API, with no runtime dependencies:
-
-- **Physics**: particles and spheres in typed arrays (thousands at 60 fps), rigid bodies (boxes, spheres,
-  capsules) with friction, stacking and sleeping, colliders, forces, springs and constraints, both colliding
-  with each other.
-- **Rendering**: a software 3D pipeline built on the `x' = x / z` perspective formula, batched into a handful
-  of canvas draw calls, with colored point, spot and hemisphere lights, smooth shading, highlights, lit sphere
-  sprites, planar shadows and fog.
-- **Framework**: a `Simulation` runtime and reusable objects (`RigidBox`, `ParticleGroup`, `Cloth`, `Ground`,
-  ...) that bundle physics and visuals; write your own by extending `SimObject`.
-
-## Getting started
+This is a recreational coding physics sim project that runs on canvas in the browser. 
 
 ```
 npm install
