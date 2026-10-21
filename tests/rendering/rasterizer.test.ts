@@ -13,10 +13,26 @@ describe("Rasterizer", () => {
     for (let i = 0; i < 500; i++) q.pushCircle(Layer.World, red, 1, i, i, 1);
     q.sort();
     const ctx = new RecordingContext();
-    const batches = new Rasterizer().draw(ctx, q);
+    const r = new Rasterizer();
+    r.maxBatch = Infinity;
+    const batches = r.draw(ctx, q);
     expect(batches).toBe(2);
     expect(ctx.calls.filter((c) => c === "beginPath").length).toBe(2);
     expect(ctx.calls.filter((c) => c === "fill").length).toBe(2);
+    expect(ctx.calls.filter((c) => c === "arc").length).toBe(1000);
+  });
+
+  it("splits runs longer than maxBatch into several paths", () => {
+    const q = new RenderQueue();
+    const s = q.styles.intern("#0f0");
+    for (let i = 0; i < 1000; i++) q.pushCircle(Layer.World, s, 1, i, i, 1);
+    q.sort();
+    const ctx = new RecordingContext();
+    const r = new Rasterizer();
+    expect(r.maxBatch).toBe(256);
+    expect(r.draw(ctx, q)).toBe(4);
+    expect(ctx.calls.filter((c) => c === "beginPath").length).toBe(4);
+    expect(ctx.calls.filter((c) => c === "fill").length).toBe(4);
     expect(ctx.calls.filter((c) => c === "arc").length).toBe(1000);
   });
 

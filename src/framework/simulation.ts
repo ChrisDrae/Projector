@@ -1,3 +1,4 @@
+import { FirstPersonControls, type FirstPersonControlsOptions } from "../controls/firstPersonControls.js";
 import { KeyboardState } from "../controls/keyboard.js";
 import { OrbitControls, placeOrbitCamera, type OrbitControlsOptions } from "../controls/orbitControls.js";
 import type { Vec3 } from "../math/vec3.js";
@@ -19,17 +20,29 @@ export interface SimulationOptions {
   camera?: PerspectiveCamera | PerspectiveCameraOptions;
   /**
    * Orbit camera: drag to rotate, wheel to zoom (with a canvas), or just the initial camera pose when
-   * headless. false leaves the camera alone. Default {} with a canvas, false without.
+   * headless. false leaves the camera alone. Default {} with a canvas, false without (or with firstPerson).
    */
   orbit?: OrbitControlsOptions | false;
-  /** Keys whose browser default (scrolling) is prevented; false for no keyboard. Needs a canvas. */
-  keyboard?: readonly string[] | false;
+  /**
+   * First-person mouse look (FirstPersonControls on the canvas): click to capture the pointer, move the
+   * mouse to turn the camera. The camera's position stays yours to set. Needs a canvas; default off.
+   */
+  firstPerson?: FirstPersonControlsOptions | false;
+  /**
+   * The keyboard (sim.keyboard), with the keys whose browser default action is prevented (Space
+   * scrolling the page, for example): `{ preventDefault: ["Space"] }`. A plain array is the same list.
+   * false for no keyboard. Needs a canvas. Default: the arrow keys, PageUp, PageDown and Space.
+   */
+  keyboard?: readonly string[] | { preventDefault?: readonly string[] } | false;
 }
 
 export interface SimulationStats {
   /** Smoothed frames per second. */
   fps: number;
-  /** Milliseconds of the last frame: everything, updates (before and after physics), physics, render. */
+  /**
+   * Milliseconds of the last frame: everything, updates (before and after physics), physics, render.
+   * Rendering counts its CPU work only (see RenderStats.ms): the canvas fills pixels afterwards.
+   */
   frameMs: number;
   updateMs: number;
   physicsMs: number;
@@ -64,6 +77,7 @@ export class Simulation {
   /** Parent of every object added with add(). */
   readonly root: SimObject;
   readonly orbit: OrbitControls | null;
+  readonly firstPerson: FirstPersonControls | null;
   readonly keyboard: KeyboardState | null;
   readonly stats: SimulationStats = {
     fps: 0,
@@ -95,7 +109,9 @@ export class Simulation {
     this.canvas = options.canvas ?? null;
     this.backend = options.backend ?? (this.canvas ? new Canvas2DBackend(this.canvas) : null);
 
-    const orbit = options.orbit ?? (this.canvas ? {} : false);
+    const firstPerson = options.firstPerson ?? false;
+    this.firstPerson = firstPerson !== false && this.canvas ? new FirstPersonControls(this.camera, this.canvas, firstPerson) : null;
+    const orbit = options.orbit ?? (this.canvas && !this.firstPerson ? {} : false);
     if (orbit !== false && this.canvas) {
       this.orbit = new OrbitControls(this.camera, this.canvas, orbit);
       if (orbit.button === 2) this.canvas.addEventListener("contextmenu", this.preventContextMenu);
@@ -106,8 +122,8 @@ export class Simulation {
         placeOrbitCamera(this.camera, target, orbit.distance ?? 1.5, orbit.yaw ?? 0, orbit.pitch ?? 0);
       }
     }
-    const keys = options.keyboard ?? DEFAULT_KEYS;
-    this.keyboard = this.canvas && keys !== false ? new KeyboardState(window, [...keys]) : null;
+    const keys = preventedKeys(options.keyboard);
+    this.keyboard = this.canvas && keys !== null ? new KeyboardState(window, keys) : null;
 
     this.root = new SimObject({ name: "root" });
     this.root.attach(this);
@@ -154,6 +170,7 @@ export class Simulation {
     const t2 = performance.now();
     this.root.syncTree(null, true);
     this.orbit?.update();
+    this.firstPerson?.update();
     const t3 = performance.now();
     if (this.backend) this.backend.render(this.scene, this.camera);
     const t4 = performance.now();
@@ -169,6 +186,7 @@ export class Simulation {
     s.primitives = this.backend ? this.backend.stats.primitives : 0;
     s.batches = this.backend ? this.backend.stats.batches : 0;
     for (let i = 0; i < this.renderListeners.length; i++) this.renderListeners[i](dt, this);
+    this.keyboard?.endFrame();
   }
 
   /** Runs frames on requestAnimationFrame with the real frame time. */
@@ -201,10 +219,23 @@ export class Simulation {
     this.stop();
     for (let i = this.root.children.length - 1; i >= 0; i--) this.root.removeChild(this.root.children[i]);
     this.orbit?.dispose();
+    this.firstPerson?.dispose();
     this.keyboard?.dispose();
     this.canvas?.removeEventListener("contextmenu", this.preventContextMenu);
     this.backend?.dispose();
   }
+}
+
+/** The keys whose default is prevented, from the keyboard option; null for no keyboard. */
+function preventedKeys(option: SimulationOptions["keyboard"]): string[] | null {
+  if (option === false) return null;
+  if (option === undefined) return [...DEFAULT_KEYS];
+  if (isKeyList(option)) return [...option];
+  return [...(option.preventDefault ?? DEFAULT_KEYS)];
+}
+
+function isKeyList(option: readonly string[] | object): option is readonly string[] {
+  return Array.isArray(option);
 }
 
 function subscribe<T>(list: T[], item: T): () => void {

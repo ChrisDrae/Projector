@@ -6,10 +6,16 @@ export interface RenderStats {
   primitives: number;
   /** Draw batches: each is one path with a single fill/stroke. */
   batches: number;
-  /** Faces or objects skipped (back faces, behind the camera, off screen). */
+  /** Faces or objects skipped (back faces, behind the camera, outside the view). */
   culled: number;
-  /** Time spent in render(), in milliseconds. */
+  /**
+   * Milliseconds spent in render(). For a canvas this is the CPU work (emit, sort, canvas calls): the
+   * browser fills the pixels afterwards, often on the GPU, and that isn't included unless the backend
+   * waits for it (see `finishMs`). The frame rate is the measure of everything.
+   */
   ms: number;
+  /** Milliseconds spent waiting for the drawing to finish, included in `ms`; only when timing is synced. */
+  finishMs?: number;
 }
 
 /**

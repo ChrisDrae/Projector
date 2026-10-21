@@ -44,6 +44,8 @@ export class Lighting {
   fog: boolean = false;
   fogNear: number = 0;
   fogFar: number = 1;
+  /** Fog by distance from the camera instead of view depth (Fog.mode "distance"). */
+  fogDistance: boolean = false;
   fogR: number = 0;
   fogG: number = 0;
   fogB: number = 0;
@@ -147,6 +149,7 @@ export class Lighting {
       this.fogNear = fog.near;
       this.fogFar = fog.far;
       this.fogCss = fog.color;
+      this.fogDistance = fog.mode === "distance";
     }
     this.simple = simple;
   }
@@ -263,7 +266,7 @@ export class Lighting {
     let g = baseG * dg + sg + emG;
     let b = baseB * db + sb + emB;
     if (this.fog) {
-      const f = this.fogFactor(pz);
+      const f = this.fogAt(px, py, pz);
       r += (this.fogR - r) * f;
       g += (this.fogG - g) * f;
       b += (this.fogB - b) * f;
@@ -378,6 +381,16 @@ export class Lighting {
     if (!this.fog) return 0;
     const f = (depth - this.fogNear) / (this.fogFar - this.fogNear);
     return f <= 0 ? 0 : f >= 1 ? 1 : f;
+  }
+
+  /** What fogFactor() measures at a view-space point: its depth, or its distance in "distance" mode. */
+  fogDepth(x: number, y: number, z: number): number {
+    return this.fogDistance ? Math.sqrt(x * x + y * y + z * z) : z;
+  }
+
+  /** Fog at a view-space point (0 none .. 1 all fog). */
+  fogAt(x: number, y: number, z: number): number {
+    return this.fogFactor(this.fogDepth(x, y, z));
   }
 
   private setDir(l: number, v: Mat4, x: number, y: number, z: number): void {

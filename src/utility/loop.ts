@@ -3,6 +3,17 @@ export interface Loop {
   readonly running: boolean;
 }
 
+/** requestAnimationFrame, or a 60 Hz timer where there is none (workers in some browsers). */
+function nextFrame(cb: (now: number) => void): number {
+  if (typeof requestAnimationFrame === "function") return requestAnimationFrame(cb);
+  return setTimeout(() => cb(performance.now()), 1000 / 60) as unknown as number;
+}
+
+function cancelFrame(handle: number): void {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+}
+
 /**
  * Runs `tick` every animation frame with the real time since the previous frame (seconds), clamped to
  * `maxDt` so a background tab or a breakpoint doesn't produce one giant step.
@@ -19,14 +30,14 @@ export function startLoop(tick: (dt: number, time: number) => void, maxDt: numbe
     last = now;
     time += dt;
     tick(dt, time);
-    handle = requestAnimationFrame(frame);
+    handle = nextFrame(frame);
   };
-  handle = requestAnimationFrame(frame);
+  handle = nextFrame(frame);
 
   return {
     stop(): void {
       running = false;
-      cancelAnimationFrame(handle);
+      cancelFrame(handle);
     },
     get running(): boolean {
       return running;

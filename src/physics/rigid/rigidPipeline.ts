@@ -2,7 +2,7 @@ import type { Vec3 } from "../../math/vec3.js";
 import type { BodyStore } from "../bodyStore.js";
 import { HashGrid } from "../broadphase.js";
 import { BoxContainer, PlaneCollider, SphereCollider } from "../colliders.js";
-import type { Collider } from "../types.js";
+import type { Collider, StaticShapeSink } from "../types.js";
 import {
   Manifold,
   boxBox,
@@ -70,6 +70,9 @@ export interface RigidWorld {
 const RIGID = 0;
 const FIXED = 1;
 const PARTICLE = 2;
+
+/** Rotation of the axis-aligned boxes custom colliders report. */
+const IDENTITY = Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
 
 // Per contact: ints [a, kind, b, keyA, keyB] and floats at these offsets
 const NI = 5;
@@ -153,6 +156,29 @@ export class RigidPipeline {
   private parent: Int32Array = new Int32Array(0);
   private restless: Uint8Array = new Uint8Array(0);
   private islandTime: Float64Array = new Float64Array(0);
+  /** The body (and its world, key and surface) a custom collider is reporting shapes for. */
+  private sinkWorld: RigidWorld | null = null;
+  private sinkBody: number = -1;
+  private sinkKey: number = 0;
+  private sinkFriction: number = 0;
+  private sinkRestitution: number = 0;
+  private readonly boxCenter: Float64Array = new Float64Array(3);
+  private readonly boxHalf: Float64Array = new Float64Array(3);
+  /** Where custom colliders report their shapes (Collider.rigidShapes). */
+  private readonly sink: StaticShapeSink = {
+    plane: (nx, ny, nz, offset) => {
+      const w = this.sinkWorld;
+      if (w && this.shapePlane(w.rigid, this.sinkBody, nx, ny, nz, offset)) this.pushSinkContacts(w);
+    },
+    box: (cx, cy, cz, hx, hy, hz) => {
+      const w = this.sinkWorld;
+      if (w && this.collideStaticBox(w.rigid, this.sinkBody, cx, cy, cz, hx, hy, hz)) this.pushSinkContacts(w);
+    },
+    sphere: (cx, cy, cz, radius) => {
+      const w = this.sinkWorld;
+      if (w && this.collideSphere(w.rigid, this.sinkBody, cx, cy, cz, radius)) this.pushSinkContacts(w);
+    },
+  };
 
   integrateVelocities(w: RigidWorld, dt: number): void {
     const s = w.rigid;
@@ -750,7 +776,47 @@ export class RigidPipeline {
           this.pushFixed(w, i, -1 - (index * 8 + k * 2 + side), c.friction ?? w.friction, c.restitution ?? w.restitution, c);
         }
       }
+    } else if (c.rigidShapes) {
+      // A custom collider reports its shapes near the body; all its contacts share one key, and warm
+      // starting matches them by their point on the body
+      this.sinkWorld = w;
+      this.sinkBody = i;
+      this.sinkKey = -1 - (index * 8 + 6);
+      this.sinkFriction = c.friction ?? w.friction;
+      this.sinkRestitution = c.restitution ?? w.restitution;
+      const o = i * 3;
+      c.rigidShapes(s.pos[o], s.pos[o + 1], s.pos[o + 2], s.radius[i] + this.settings.margin, this.sink);
+      this.sinkWorld = null;
     }
+  }
+
+  private pushSinkContacts(w: RigidWorld): void {
+    this.pushFixed(w, this.sinkBody, this.sinkKey, this.sinkFriction, this.sinkRestitution, null);
+  }
+
+  /** Contacts of rigid body i (A) with a fixed axis-aligned box (B). */
+  private collideStaticBox(s: RigidBodyStore, i: number, cx: number, cy: number, cz: number, hx: number, hy: number, hz: number): boolean {
+    const m = this.manifold;
+    const margin = this.settings.margin;
+    const c = this.boxCenter;
+    const h = this.boxHalf;
+    c[0] = cx;
+    c[1] = cy;
+    c[2] = cz;
+    h[0] = hx;
+    h[1] = hy;
+    h[2] = hz;
+    const t = s.shape[i];
+    const pos = s.pos;
+    if (t === ShapeType.Sphere) {
+      sphereBox(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], s.dims[i * 3], c, 0, IDENTITY, 0, h, 0, margin, m);
+    } else if (t === ShapeType.Capsule) {
+      this.segment(s, i, this.capsule);
+      capsuleBox(this.capsule, s.dims[i * 3], c, 0, IDENTITY, 0, h, 0, margin, m);
+    } else {
+      boxBox(pos, i * 3, this.rot, i * 9, s.dims, i * 3, c, 0, IDENTITY, 0, h, 0, margin, m);
+    }
+    return m.count > 0;
   }
 
   /** Manifold contacts with a fixed surface; the box container's walls move with its kinematic velocity. */

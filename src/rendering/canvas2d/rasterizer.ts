@@ -41,6 +41,13 @@ export class Rasterizer {
   sprites: SpriteSource | null = null;
   /** Device pixels per CSS pixel, to pick sprite resolutions. */
   pixelRatio: number = 1;
+  /**
+   * Most primitives drawn as one path. Browsers fill one path of many overlapping shapes
+   * disproportionately slowly (in Chrome 14,000 overlapping quads took ~350 ms as one path, 23 ms in
+   * batches of 256), so longer runs of one style are split. 256 was as fast as or faster than unlimited
+   * in every demo measured; see docs/requirements-feedback.md (R5).
+   */
+  maxBatch: number = 256;
   private fill: string | null = null;
   /** CSS of fine color keys (gradient stops), made once each. */
   private readonly css: Array<string | undefined> = [];
@@ -59,9 +66,14 @@ export class Rasterizer {
   /** Returns the number of draw calls: batches, with every gradient polygon counted on its own. */
   draw(ctx: Canvas2DLike, queue: RenderQueue): number {
     this.drawCalls = 0;
+    const max = Math.max(1, this.maxBatch);
     queue.forEachBatch((kind, style, start, end) => {
-      if (kind === PrimitiveKind.Sprite) this.drawSprites(ctx, queue, style, start, end);
-      else this.drawBatch(ctx, queue, kind, queue.styles.get(style), start, end);
+      if (kind === PrimitiveKind.Sprite) {
+        this.drawSprites(ctx, queue, style, start, end);
+        return;
+      }
+      const s = queue.styles.get(style);
+      for (let from = start; from < end; from += max) this.drawBatch(ctx, queue, kind, s, from, Math.min(end, from + max));
     });
     return this.drawCalls;
   }

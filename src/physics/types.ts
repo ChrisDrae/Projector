@@ -49,7 +49,22 @@ export interface Constraint {
   solve(bodies: BodyStore, dt: number): void;
 }
 
-/** Static or kinematic shape the bodies collide with (containers, floors, obstacles). */
+/** Receives the fixed shapes a collider reports around a rigid body (see Collider.rigidShapes). */
+export interface StaticShapeSink {
+  /** The plane dot(n, p) = offset with unit normal n; bodies stay on the side n points to. */
+  plane(nx: number, ny: number, nz: number, offset: number): void;
+  /** An axis-aligned box: center and half extents. */
+  box(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number): void;
+  sphere(cx: number, cy: number, cz: number, radius: number): void;
+}
+
+/**
+ * Static or kinematic shape the bodies collide with (containers, floors, obstacles).
+ *
+ * Particles collide with any collider through solve(). Rigid bodies collide with the built-in
+ * PlaneCollider, SphereCollider and BoxContainer, and with any other collider that implements
+ * rigidShapes(); a collider without it lets rigid bodies pass through.
+ */
 export interface Collider {
   /** Advances kinematic motion, once per fixed step before collisions are solved. */
   update(dt: number): void;
@@ -60,4 +75,16 @@ export interface Collider {
    * surface normal to `normal`, or -1 for a miss.
    */
   raycast?(origin: Vec3, dir: Vec3, normal: Vec3): number;
+  /**
+   * Optional fixed geometry for rigid bodies: called once per step for every awake dynamic rigid body,
+   * with a sphere around it (its bounding sphere plus the contact margin). Report the planes, boxes and
+   * spheres that body may touch to `out`; it collides with them like with the built-in colliders,
+   * resting and sleeping on them. Geometry that changes under a sleeping body doesn't wake it.
+   * Bodies sliding across the seam of two adjacent boxes can catch on their inner edges: report merged
+   * boxes or planes where the surface is flat.
+   */
+  rigidShapes?(x: number, y: number, z: number, radius: number, out: StaticShapeSink): void;
+  /** Surface of the shapes reported by rigidShapes; the world's when null or not set. */
+  friction?: number | null;
+  restitution?: number | null;
 }

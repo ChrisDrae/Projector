@@ -38,6 +38,8 @@ export class StyleTable {
 
 // Sort keys are 32 bits. Depth-sorted layers: layer (3 bits) | far-to-near depth (16) | kind (3) | style (10).
 // Other layers: layer (3) | kind (3) | style (26). So there can be up to 8 layers and 8 primitive kinds.
+// In depth-sorted layers the style bits only order primitives of equal depth, to batch them; styles past
+// 1023 share bits there, which can split a batch but never changes the depth order.
 const LAYER_UNIT = 2 ** 29;
 const DEPTH_UNIT = 2 ** 13;
 const KIND_UNIT_SORTED = 2 ** 10;
@@ -72,6 +74,12 @@ export class RenderQueue {
   readonly sprites: SpriteTable = new SpriteTable();
   /** Bit mask of layers sorted back to front. */
   depthSortedLayers: number = 1 << Layer.World;
+  /**
+   * Opaque filled polygons grow by this many pixels around their center; 0 (default) leaves them as
+   * they are. Neighbors drawn in different batches otherwise leave anti-aliased hairlines between them
+   * where the background shows through. Translucent polygons never grow: their overlaps would show.
+   */
+  seam: number = 0;
   private keys: Uint32Array;
   private tmp: Uint32Array;
   private readonly counts: Uint32Array = new Uint32Array(256);
@@ -108,6 +116,32 @@ export class RenderQueue {
       for (let i = 0; i < n; i++) {
         c[o + i * 2] = xy[(n - 1 - i) * 2];
         c[o + i * 2 + 1] = xy[(n - 1 - i) * 2 + 1];
+      }
+    }
+    if (this.seam > 0) {
+      const s = this.styles.get(style);
+      if (s.fill !== null && s.alpha >= 1) this.growPolygon(o, n, this.seam);
+    }
+  }
+
+  /** Moves the n vertices at coords[o] `by` pixels away from their center. */
+  private growPolygon(o: number, n: number, by: number): void {
+    const c = this.coords;
+    let mx = 0;
+    let my = 0;
+    for (let i = 0; i < n; i++) {
+      mx += c[o + i * 2];
+      my += c[o + i * 2 + 1];
+    }
+    mx /= n;
+    my /= n;
+    for (let i = 0; i < n; i++) {
+      const dx = c[o + i * 2] - mx;
+      const dy = c[o + i * 2 + 1] - my;
+      const len = Math.hypot(dx, dy);
+      if (len > 0) {
+        c[o + i * 2] += (dx / len) * by;
+        c[o + i * 2 + 1] += (dy / len) * by;
       }
     }
   }

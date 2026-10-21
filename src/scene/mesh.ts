@@ -25,6 +25,8 @@ export class Mesh {
   version: number = 0;
   private cornerVersion: number = -1;
   private creaseCos: number = 0.5;
+  private readonly bounds: Float64Array = new Float64Array(4);
+  private boundsVersion: number = -1;
   private vertexFaceStart: Uint32Array | null = null;
   private vertexFaces: Uint32Array | null = null;
 
@@ -119,6 +121,48 @@ export class Mesh {
   markDirty(): void {
     this.version++;
     this.computeFaceNormals();
+  }
+
+  /**
+   * Bounding sphere in mesh space as [x, y, z, radius]: centered on the vertices' bounding box, reaching
+   * the farthest vertex. Recomputed only when the mesh changed since the last call.
+   */
+  boundingSphere(): Float64Array {
+    const b = this.bounds;
+    if (this.boundsVersion === this.version) return b;
+    this.boundsVersion = this.version;
+    const p = this.positions;
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < p.length; i += 3) {
+      if (p[i] < minX) minX = p[i];
+      if (p[i] > maxX) maxX = p[i];
+      if (p[i + 1] < minY) minY = p[i + 1];
+      if (p[i + 1] > maxY) maxY = p[i + 1];
+      if (p[i + 2] < minZ) minZ = p[i + 2];
+      if (p[i + 2] > maxZ) maxZ = p[i + 2];
+    }
+    if (p.length === 0) {
+      b.fill(0);
+      return b;
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const cz = (minZ + maxZ) / 2;
+    let r2 = 0;
+    for (let i = 0; i < p.length; i += 3) {
+      const d = (p[i] - cx) ** 2 + (p[i + 1] - cy) ** 2 + (p[i + 2] - cz) ** 2;
+      if (d > r2) r2 = d;
+    }
+    b[0] = cx;
+    b[1] = cy;
+    b[2] = cz;
+    b[3] = Math.sqrt(r2);
+    return b;
   }
 
   /**

@@ -51,7 +51,7 @@ export type { RenderBackend, RenderStats } from "./rendering/backend.js";
 export { colorOf, mix, parseColor, shade, toCss } from "./rendering/color.js";
 export type { RGB } from "./rendering/color.js";
 export { Canvas2DBackend } from "./rendering/canvas2d/canvas2dBackend.js";
-export type { Canvas2DBackendOptions } from "./rendering/canvas2d/canvas2dBackend.js";
+export type { Canvas2DBackendOptions, Canvas2DContext } from "./rendering/canvas2d/canvas2dBackend.js";
 export { Rasterizer } from "./rendering/canvas2d/rasterizer.js";
 export type { Canvas2DLike, SpriteSource } from "./rendering/canvas2d/rasterizer.js";
 export { SpriteCache, defaultCanvasFactory } from "./rendering/canvas2d/spriteCache.js";
@@ -89,6 +89,7 @@ export type {
   ForceGenerator,
   Precision,
   SolverSettings,
+  StaticShapeSink,
 } from "./physics/types.js";
 export { BoxContainer, PlaneCollider, SphereCollider } from "./physics/colliders.js";
 export type { BoxContainerOptions, ColliderMaterial, SphereColliderOptions } from "./physics/colliders.js";
@@ -116,6 +117,8 @@ export { PointerDrag } from "./controls/pointerDrag.js";
 export type { PointerDragOptions } from "./controls/pointerDrag.js";
 export { OrbitControls, placeOrbitCamera } from "./controls/orbitControls.js";
 export type { OrbitControlsOptions } from "./controls/orbitControls.js";
+export { FirstPersonControls } from "./controls/firstPersonControls.js";
+export type { FirstPersonControlsOptions } from "./controls/firstPersonControls.js";
 
 // Utilities
 export { PerlinNoise, perlin, toUnit } from "./utility/perlin.js";

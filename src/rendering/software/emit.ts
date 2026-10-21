@@ -114,9 +114,23 @@ export interface EmitContext {
   style(fill: string | null, stroke?: string | null, lineWidth?: number, alpha?: number): number;
   /** Draws a mesh with a world matrix, shaded and culled like a MeshNode. */
   drawMesh(mesh: Mesh, material: Material, world: Mat4, layer?: number, sortMode?: SortMode): void;
-  /** Polygon from n xyz triplets, unshaded. Returns false when it was culled. */
-  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number): boolean;
-  line3D(layer: number, style: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean;
+  /**
+   * Polygon from n xyz triplets, unshaded. It sorts at the average view depth of its corners, or at
+   * `depth` when given (e.g. every face of a block at the block's distance). Returns false when culled.
+   */
+  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number, depth?: number): boolean;
+  /** Segment from a to b; it sorts at the view depth of its middle, or at `depth` when given. */
+  line3D(
+    layer: number,
+    style: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    depth?: number,
+  ): boolean;
   /** Sphere of radius r drawn as a perspective-sized circle. */
   circle3D(layer: number, style: number, x: number, y: number, z: number, r: number): boolean;
   /** Screen position of a world point in `out`; returns its view depth, or -1 behind the near plane. */
@@ -125,7 +139,9 @@ export interface EmitContext {
   brightness(nx: number, ny: number, nz: number): number;
   /**
    * Fill style of a surface with this material at world point (x, y, z) with world-space unit normal n,
-   * under all scene lights and fog: for custom geometry shaded like meshes.
+   * under all scene lights and fog: for custom geometry shaded like meshes. The point sets the fog, the
+   * reach of point and spot lights, and highlights; directional and hemisphere light depend on the
+   * normal alone. Styles are quantized, so alike surfaces share them (and batch together).
    */
   litStyle(material: Material, nx: number, ny: number, nz: number, x: number, y: number, z: number): number;
 }
@@ -158,6 +174,8 @@ export class SoftwareEmitter implements EmitContext {
   private smoothFlatKey: number = 0;
   private cloud: Float64Array = new Float64Array(4 * 256);
   private cloudIndex: Int32Array = new Int32Array(256);
+  /** Fog depth per cloud entry (see Lighting.fogDepth). */
+  private cloudFog: Float64Array = new Float64Array(256);
   readonly lighting: Lighting = new Lighting();
   readonly shadows: ShadowProjector = new ShadowProjector();
   private background: RGB = { r: 0, g: 0, b: 0 };
@@ -246,6 +264,10 @@ export class SoftwareEmitter implements EmitContext {
     const p = this.proj;
     const near = p.near;
     const m = mat4.multiply(this.modelView, camera.viewMatrix, world);
+    if (this.outsideView(mesh, m)) {
+      this.culled += Math.max(1, mesh.faceCount);
+      return;
+    }
     // Object sorting: every face at the depth of the origin (a convex mesh never overlaps itself)
     const objectDepth = sortMode === "object" ? m[14] : NaN;
 
@@ -330,21 +352,8 @@ export class SoftwareEmitter implements EmitContext {
           nz = -nz;
         }
         const depth = sortMode === "object" ? objectDepth : cz;
-        let style: number;
-        if (corners) {
-          if (this.smoothFace(styles, mat, m, corners, start, n, flipped, minZ < near, layer, depth)) continue;
-          style = this.fineStyle(styles, this.smoothFlatKey);
-        } else if (simple || (!lit && !lighting.fog)) {
-          let level = SHADE_LEVELS - 1;
-          if (lit) {
-            const len = Math.hypot(nx, ny, nz) || 1;
-            level = Math.round(lighting.brightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
-          }
-          style = styles.faces[level];
-        } else {
-          const len = Math.hypot(nx, ny, nz) || 1;
-          style = this.shadeFace(styles, mat, lit, nx / len, ny / len, nz / len, cx, cy, cz);
-        }
+        // Smooth faces draw themselves, unless they turn out flat or cross the near plane
+        if (corners && this.smoothFace(styles, mat, m, corners, start, n, flipped, minZ < near, layer, depth)) continue;
 
         let src = poly;
         let count = n;
@@ -361,6 +370,25 @@ export class SoftwareEmitter implements EmitContext {
           const z = src[k * 3 + 2];
           screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
           screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
+        }
+        if (this.offScreen(screen, count)) {
+          this.culled++;
+          continue;
+        }
+
+        let style: number;
+        if (corners) {
+          style = this.fineStyle(styles, this.smoothFlatKey);
+        } else if (simple || (!lit && !lighting.fog)) {
+          let level = SHADE_LEVELS - 1;
+          if (lit) {
+            const len = Math.hypot(nx, ny, nz) || 1;
+            level = Math.round(lighting.brightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
+          }
+          style = styles.faces[level];
+        } else {
+          const len = Math.hypot(nx, ny, nz) || 1;
+          style = this.shadeFace(styles, mat, lit, nx / len, ny / len, nz / len, cx, cy, cz);
         }
         q.pushPolygon(layer, style, depth, screen, count);
       }
@@ -385,7 +413,7 @@ export class SoftwareEmitter implements EmitContext {
         const depth = (seg[2] + seg[5]) / 2;
         q.pushLine(
           layer,
-          lighting.fog ? this.foggedLine(styles, depth) : styles.line,
+          lighting.fog ? this.foggedLine(styles, this.segmentFogDepth(seg)) : styles.line,
           depth,
           p.cx + (p.sx * seg[0]) / seg[2],
           p.cy - (p.sy * seg[1]) / seg[2],
@@ -444,6 +472,7 @@ export class SoftwareEmitter implements EmitContext {
       cloud[k * 4 + 1] = py;
       cloud[k * 4 + 2] = sr;
       cloud[k * 4 + 3] = vz;
+      this.cloudFog[k] = this.lighting.fogDepth(vx, vy, vz);
       index[k] = i;
       k++;
       if (vz < zmin) zmin = vz;
@@ -461,7 +490,7 @@ export class SoftwareEmitter implements EmitContext {
     for (let j = 0; j < k; j++) {
       const z = cloud[j * 4 + 3];
       // With fog, spheres fade by their absolute depth; without, relative to the nearest and farthest
-      const level = fog ? Math.round(this.lighting.fogFactor(z) * (levels - 1)) : Math.round((z - zmin) * scale);
+      const level = fog ? Math.round(this.lighting.fogFactor(this.cloudFog[j]) * (levels - 1)) : Math.round((z - zmin) * scale);
       let c = 0;
       if (colorIndex) {
         c = colorIndex(index[j]) % pal;
@@ -555,7 +584,7 @@ export class SoftwareEmitter implements EmitContext {
       let cg = bg * (s.ambientG + s.lightG * s.phase);
       let cb = bb * (s.ambientB + s.lightB * s.phase);
       if (fog) {
-        const f = l.fogFactor(vz);
+        const f = l.fogAt(vx, vy, vz);
         cr += (l.fogR - cr) * f;
         cg += (l.fogG - cg) * f;
         cb += (l.fogB - cb) * f;
@@ -667,8 +696,10 @@ export class SoftwareEmitter implements EmitContext {
         this.culled++;
         continue;
       }
-      const px = p.cx + (p.sx * (v[0] * x + v[4] * y + v[8] * z + v[12])) / vz;
-      const py = p.cy - (p.sy * (v[1] * x + v[5] * y + v[9] * z + v[13])) / vz;
+      const vx = v[0] * x + v[4] * y + v[8] * z + v[12];
+      const vy = v[1] * x + v[5] * y + v[9] * z + v[13];
+      const px = p.cx + (p.sx * vx) / vz;
+      const py = p.cy - (p.sy * vy) / vz;
       if (px + half < 0 || px - half > p.width || py + half < 0 || py - half > p.height) {
         this.culled++;
         continue;
@@ -676,6 +707,7 @@ export class SoftwareEmitter implements EmitContext {
       cloud[k * 4] = px;
       cloud[k * 4 + 1] = py;
       cloud[k * 4 + 3] = vz;
+      this.cloudFog[k] = this.lighting.fogDepth(vx, vy, vz);
       k++;
       if (vz < zmin) zmin = vz;
       if (vz > zmax) zmax = vz;
@@ -689,7 +721,7 @@ export class SoftwareEmitter implements EmitContext {
     const q = this.queue;
     for (let j = 0; j < k; j++) {
       const z = cloud[j * 4 + 3];
-      const level = fog ? Math.round(this.lighting.fogFactor(z) * (levels - 1)) : Math.round((z - zmin) * scale);
+      const level = fog ? Math.round(this.lighting.fogFactor(this.cloudFog[j]) * (levels - 1)) : Math.round((z - zmin) * scale);
       q.pushPoint(node.layer, ids[level], z, cloud[j * 4], cloud[j * 4 + 1], size);
     }
   }
@@ -720,7 +752,7 @@ export class SoftwareEmitter implements EmitContext {
       const depth = (seg[2] + seg[5]) / 2;
       this.queue.pushLine(
         node.layer,
-        fogIds ? fogIds[Math.round(this.lighting.fogFactor(depth) * (FOG_LEVELS - 1))] : style,
+        fogIds ? fogIds[Math.round(this.lighting.fogFactor(this.segmentFogDepth(seg)) * (FOG_LEVELS - 1))] : style,
         depth,
         p.cx + (p.sx * seg[0]) / seg[2],
         p.cy - (p.sy * seg[1]) / seg[2],
@@ -734,7 +766,7 @@ export class SoftwareEmitter implements EmitContext {
     return this.queue.styles.intern(fill, stroke, lineWidth, alpha);
   }
 
-  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number): boolean {
+  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number, depth?: number): boolean {
     if (n < 3) return false;
     this.ensurePolygonCapacity(n);
     const v = this.camera.viewMatrix;
@@ -775,11 +807,25 @@ export class SoftwareEmitter implements EmitContext {
       screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
       screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
     }
-    this.queue.pushPolygon(layer, style, cz / n, screen, count);
+    if (this.offScreen(screen, count)) {
+      this.culled++;
+      return false;
+    }
+    this.queue.pushPolygon(layer, style, depth ?? cz / n, screen, count);
     return true;
   }
 
-  line3D(layer: number, style: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+  line3D(
+    layer: number,
+    style: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    depth?: number,
+  ): boolean {
     const v = this.camera.viewMatrix;
     const p = this.proj;
     const seg = this.seg;
@@ -796,7 +842,7 @@ export class SoftwareEmitter implements EmitContext {
     this.queue.pushLine(
       layer,
       style,
-      (seg[2] + seg[5]) / 2,
+      depth ?? (seg[2] + seg[5]) / 2,
       p.cx + (p.sx * seg[0]) / seg[2],
       p.cy - (p.sy * seg[1]) / seg[2],
       p.cx + (p.sx * seg[3]) / seg[5],
@@ -876,7 +922,7 @@ export class SoftwareEmitter implements EmitContext {
       g = l.g;
       b = l.b;
     } else {
-      const f = l.fogFactor(pz);
+      const f = l.fogAt(px, py, pz);
       r = styles.baseR + (l.fogR - styles.baseR) * f;
       g = styles.baseG + (l.fogG - styles.baseG) * f;
       b = styles.baseB + (l.fogB - styles.baseB) * f;
@@ -951,6 +997,10 @@ export class SoftwareEmitter implements EmitContext {
       const z = poly[k * 3 + 2];
       screen[k * 2] = p.cx + (p.sx * poly[k * 3]) / z;
       screen[k * 2 + 1] = p.cy - (p.sy * poly[k * 3 + 1]) / z;
+    }
+    if (this.offScreen(screen, n)) {
+      this.culled++;
+      return true;
     }
     const average = this.fineStyle(styles, quantizeFine(ar / n, ag / n, ab / n));
     for (let k = 1; k + 1 < n; k++) this.gradientTriangle(styles, average, layer, depth, 0, k, k + 1);
@@ -1061,7 +1111,12 @@ export class SoftwareEmitter implements EmitContext {
     return id;
   }
 
-  /** Line style of a mesh's edges at a view depth, faded toward the fog color. */
+  /** What the fog measures at the middle of a view-space segment (see Lighting.fogDepth). */
+  private segmentFogDepth(seg: Float64Array): number {
+    return this.lighting.fogDepth((seg[0] + seg[3]) / 2, (seg[1] + seg[4]) / 2, (seg[2] + seg[5]) / 2);
+  }
+
+  /** Line style of a mesh's edges at a fog depth (see Lighting.fogDepth), faded toward the fog color. */
   private foggedLine(styles: MeshStyles, depth: number): number {
     const l = this.lighting;
     if (!styles.lineFog || styles.lineFogCss !== l.fogCss) {
@@ -1172,6 +1227,50 @@ export class SoftwareEmitter implements EmitContext {
     return ids;
   }
 
+  /** Whether a mesh's bounding sphere, taken to view space by m, lies entirely outside the view frustum. */
+  private outsideView(mesh: Mesh, m: Mat4): boolean {
+    const b = mesh.boundingSphere();
+    const p = this.proj;
+    // The longest axis of the transform scales the radius
+    const scale = Math.sqrt(
+      Math.max(
+        m[0] * m[0] + m[1] * m[1] + m[2] * m[2],
+        m[4] * m[4] + m[5] * m[5] + m[6] * m[6],
+        m[8] * m[8] + m[9] * m[9] + m[10] * m[10],
+      ),
+    );
+    const r = b[3] * scale;
+    const x = b[0];
+    const y = b[1];
+    const z = b[2];
+    const vx = m[0] * x + m[4] * y + m[8] * z + m[12];
+    const vy = m[1] * x + m[5] * y + m[9] * z + m[13];
+    const vz = m[2] * x + m[6] * y + m[10] * z + m[14];
+    if (vz + r < p.near) return true;
+    // Side planes through the camera: |x| <= z * tx and |y| <= z * ty
+    const tx = p.cx / p.sx;
+    const ty = p.cy / p.sy;
+    return (Math.abs(vx) - tx * vz) / Math.sqrt(1 + tx * tx) > r || (Math.abs(vy) - ty * vz) / Math.sqrt(1 + ty * ty) > r;
+  }
+
+  /** Whether projected points (x, y pairs) all lie beyond one edge of the viewport. */
+  private offScreen(xy: Float64Array, n: number): boolean {
+    const p = this.proj;
+    let left = true;
+    let right = true;
+    let above = true;
+    let below = true;
+    for (let k = 0; k < n; k++) {
+      const x = xy[k * 2];
+      const y = xy[k * 2 + 1];
+      if (x >= 0) left = false;
+      if (x <= p.width) right = false;
+      if (y >= 0) above = false;
+      if (y <= p.height) below = false;
+    }
+    return left || right || above || below;
+  }
+
   private ensurePolygonCapacity(n: number): void {
     if (this.poly.length < n * 3) {
       this.poly = new Float64Array(n * 3);
@@ -1185,6 +1284,7 @@ export class SoftwareEmitter implements EmitContext {
       const cap = Math.max(n, this.cloudIndex.length * 2);
       this.cloud = new Float64Array(cap * 4);
       this.cloudIndex = new Int32Array(cap);
+      this.cloudFog = new Float64Array(cap);
     }
   }
 }
