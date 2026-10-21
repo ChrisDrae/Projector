@@ -25,6 +25,8 @@ export interface ParticleGroupOptions {
   /** Point size in CSS pixels for render: "points". */
   pointSize?: number;
   layer?: number;
+  /** Spheres cast planar shadows onto shadow receivers (like a Ground). */
+  castShadow?: boolean;
 }
 
 export interface ParticleOptions {
@@ -144,6 +146,7 @@ export class ParticleGroup extends SimObject {
           minPixelRadius: o.minPixelRadius,
           layer: o.layer,
           group: this.group,
+          castShadow: o.castShadow,
         }),
       );
     } else if (render === "points") {

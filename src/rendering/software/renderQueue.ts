@@ -1,6 +1,6 @@
 import { Layer } from "../../scene/nodes.js";
 
-export const PrimitiveKind = { Polygon: 0, Line: 1, Circle: 2, Point: 3 } as const;
+export const PrimitiveKind = { Polygon: 0, Line: 1, Circle: 2, Point: 3, GradientPolygon: 4 } as const;
 export type PrimitiveKind = (typeof PrimitiveKind)[keyof typeof PrimitiveKind];
 
 export interface Style {
@@ -56,7 +56,10 @@ export class RenderQueue {
   offset: Uint32Array;
   /** Vertex count for polygons. */
   size: Uint16Array;
-  /** Screen-space coordinates, per kind: polygon x,y pairs; line x0,y0,x1,y1; circle x,y,r; point x,y,size. */
+  /**
+   * Screen-space coordinates, per kind: polygon x,y pairs; line x0,y0,x1,y1; circle x,y,r; point x,y,size;
+   * gradient polygon x,y pairs, then the gradient line x0,y0,x1,y1 and its two fine color keys.
+   */
   coords: Float32Array;
   coordCount: number = 0;
   /** Primitive indices in draw order, valid after sort(). */
@@ -102,6 +105,35 @@ export class RenderQueue {
         c[o + i * 2 + 1] = xy[(n - 1 - i) * 2 + 1];
       }
     }
+  }
+
+  /**
+   * A polygon filled with a linear gradient from color key `from` at (gx0, gy0) to `to` at (gx1, gy1)
+   * (keys as made by quantizeFine()). Each one is its own draw call; the style supplies opacity and outline.
+   */
+  pushGradientPolygon(
+    layer: number,
+    style: number,
+    depth: number,
+    xy: ArrayLike<number>,
+    n: number,
+    gx0: number,
+    gy0: number,
+    gx1: number,
+    gy1: number,
+    from: number,
+    to: number,
+  ): void {
+    const o = this.add(PrimitiveKind.GradientPolygon, layer, style, depth, n * 2 + 6, n);
+    const c = this.coords;
+    for (let i = 0; i < n * 2; i++) c[o + i] = xy[i];
+    const g = o + n * 2;
+    c[g] = gx0;
+    c[g + 1] = gy0;
+    c[g + 2] = gx1;
+    c[g + 3] = gy1;
+    c[g + 4] = from;
+    c[g + 5] = to;
   }
 
   pushLine(layer: number, style: number, depth: number, x0: number, y0: number, x1: number, y1: number): void {

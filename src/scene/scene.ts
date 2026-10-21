@@ -10,9 +10,16 @@ export interface Fog {
   far: number;
 }
 
+/** Look of planar shadows (see MeshNode.receiveShadow / castShadow and the lights' castShadow). */
+export interface ShadowStyle {
+  color: string;
+  opacity: number;
+}
+
 export interface SceneOptions {
   background?: string;
   fog?: Fog | null;
+  shadow?: ShadowStyle;
 }
 
 /** Flat list of renderable nodes plus lights. */
@@ -22,10 +29,12 @@ export class Scene {
   ambient: AmbientLight = new AmbientLight();
   lights: Light[] = [new DirectionalLight()];
   fog: Fog | null;
+  shadow: ShadowStyle;
 
   constructor(options: SceneOptions = {}) {
     this.background = options.background ?? "#333131";
     this.fog = options.fog ?? null;
+    this.shadow = options.shadow ?? { color: "#000000", opacity: 0.35 };
   }
 
   add<T extends SceneNode>(node: T): T {

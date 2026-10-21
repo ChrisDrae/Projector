@@ -66,6 +66,17 @@
       "candidateTests": 0,
       "bodies": 4000,
       "finite": true
+    },
+    "lighting": {
+      "frames": 120,
+      "primitives": 2061,
+      "batches": 1380,
+      "beginPaths": 1380,
+      "pathCommands": 6385,
+      "pairs": 0,
+      "candidateTests": 0,
+      "bodies": 0,
+      "finite": true
     }
   }
 }

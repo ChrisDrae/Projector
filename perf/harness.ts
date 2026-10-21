@@ -70,7 +70,13 @@ export class CountingContext implements Canvas2DLike {
   stroke(): void {
     this.strokes++;
   }
+
+  createLinearGradient(): CanvasGradient {
+    return GRADIENT;
+  }
 }
+
+const GRADIENT = { addColorStop(): void {} } as unknown as CanvasGradient;
 
 /** The Canvas2DBackend pipeline (emit, sort, rasterize) into a CountingContext, timing emit and raster. */
 export class CountingBackend implements RenderBackend {

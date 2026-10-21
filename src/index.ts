@@ -43,7 +43,7 @@ export type {
   SphereSource,
 } from "./scene/nodes.js";
 export { Scene } from "./scene/scene.js";
-export type { Fog, SceneNode, SceneOptions } from "./scene/scene.js";
+export type { Fog, SceneNode, SceneOptions, ShadowStyle } from "./scene/scene.js";
 
 // Rendering
 export type { RenderBackend, RenderStats } from "./rendering/backend.js";
@@ -55,6 +55,7 @@ export { Rasterizer } from "./rendering/canvas2d/rasterizer.js";
 export type { Canvas2DLike } from "./rendering/canvas2d/rasterizer.js";
 export { SoftwareEmitter, SHADE_LEVELS } from "./rendering/software/emit.js";
 export { Lighting, MAX_LIGHTS } from "./rendering/software/lighting.js";
+export { ShadowProjector } from "./rendering/software/shadows.js";
 export type { EmitContext } from "./rendering/software/emit.js";
 export { PrimitiveKind, RenderQueue, StyleTable } from "./rendering/software/renderQueue.js";
 export type { Style } from "./rendering/software/renderQueue.js";
@@ -140,3 +141,5 @@ export { Cloth } from "./framework/objects/cloth.js";
 export type { ClothOptions } from "./framework/objects/cloth.js";
 export { VelocityTrails } from "./framework/objects/velocityTrails.js";
 export type { VelocityTrailsOptions } from "./framework/objects/velocityTrails.js";
+export { MeshObject } from "./framework/objects/meshObject.js";
+export type { MeshObjectOptions } from "./framework/objects/meshObject.js";

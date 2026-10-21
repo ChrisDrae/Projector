@@ -61,6 +61,8 @@ export interface SphereCloudOptions {
   layer?: number;
   /** Draw only the spheres of this group (needs source.group). Default: all. */
   group?: number | null;
+  /** Cast planar shadows (an ellipse per sphere) onto shadow receivers. */
+  castShadow?: boolean;
 }
 
 /** Many spheres drawn as screen-space circles, sized by perspective. */
@@ -74,6 +76,7 @@ export class SphereCloud {
   minPixelRadius: number;
   /** Draw only the spheres of this group; null draws all. */
   group: number | null;
+  castShadow: boolean;
   visible: boolean = true;
   layer: number;
 
@@ -86,6 +89,7 @@ export class SphereCloud {
     this.minPixelRadius = options.minPixelRadius ?? 0.6;
     this.layer = options.layer ?? Layer.World;
     this.group = options.group ?? null;
+    this.castShadow = options.castShadow ?? false;
   }
 }
 

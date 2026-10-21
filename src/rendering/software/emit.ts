@@ -7,7 +7,9 @@ import { Layer, type LineSet, type MeshNode, type PointCloud, type SortMode, typ
 import type { Scene } from "../../scene/scene.js";
 import { colorOf, mix, parseColor, shade, toCss, type RGB } from "../color.js";
 import { clipPolygonNear, clipSegmentNear } from "./clip.js";
-import { Lighting, quantize, quantizedCss } from "./lighting.js";
+import { triangleGradient } from "./gradient.js";
+import { Lighting, fineCss, quantize, quantizeFine, quantizedCss } from "./lighting.js";
+import { ShadowProjector } from "./shadows.js";
 import { createProjection, updateProjection, type ProjectionParams } from "./projection.js";
 import { RenderQueue } from "./renderQueue.js";
 
@@ -15,6 +17,8 @@ import { RenderQueue } from "./renderQueue.js";
 export const SHADE_LEVELS = 32;
 /** Quantized fog levels for lines. */
 const FOG_LEVELS = 16;
+/** Gradient triangles are grown by this many pixels so anti-aliasing doesn't open seams between them. */
+const SEAM = 0.35;
 
 interface MeshStyles {
   color: string;
@@ -36,6 +40,9 @@ interface MeshStyles {
   edgeCss: string | null;
   /** Full lighting model: quantized color key -> style id (-1 until first used), shared by alike materials. */
   lut: Int32Array;
+  /** The same for fine (6-bit) keys, made when a smooth material first needs it. */
+  fineLut: Int32Array | null;
+  lutKey: string;
   /** Line styles per fog level, for the fog color they were made with. */
   lineFog: Int32Array | null;
   lineFogCss: string;
@@ -92,9 +99,18 @@ export class SoftwareEmitter implements EmitContext {
   private clipped: Float64Array = new Float64Array(3 * 32);
   private screen: Float64Array = new Float64Array(2 * 32);
   private readonly seg: Float64Array = new Float64Array(6);
+  /** Per corner of the current smooth face: lit color (rgb), quantized key, screen position. */
+  private cornerColor: Float64Array = new Float64Array(3 * 16);
+  private cornerKey: Int32Array = new Int32Array(16);
+  private cornerScreen: Float64Array = new Float64Array(2 * 16);
+  private readonly tri: Float64Array = new Float64Array(6);
+  private readonly gradientLine: Float64Array = new Float64Array(4);
+  /** Color key of the last smooth face that falls back to flat shading. */
+  private smoothFlatKey: number = 0;
   private cloud: Float64Array = new Float64Array(4 * 256);
   private cloudIndex: Int32Array = new Int32Array(256);
   readonly lighting: Lighting = new Lighting();
+  readonly shadows: ShadowProjector = new ShadowProjector();
   private background: RGB = { r: 0, g: 0, b: 0 };
   private backgroundCss: string = "";
   private readonly meshStyles: WeakMap<Material, MeshStyles> = new WeakMap();
@@ -128,6 +144,7 @@ export class SoftwareEmitter implements EmitContext {
           break;
       }
     }
+    this.shadows.emit(scene, this);
   }
 
   /** Resets the queue and prepares per-frame state (projection, lights in view space). */
@@ -189,6 +206,8 @@ export class SoftwareEmitter implements EmitContext {
     const lit = mat.shading !== "unlit";
     // Scenes and materials without any of the newer lighting features keep the original brightness model
     const simple = lighting.simple && mat.specular <= 0 && mat.emissive === null;
+    const smooth = mat.shading === "smooth" && faceCount > 0 && !mat.wireframe;
+    const corners = smooth ? mesh.computeCornerNormals() : null;
 
     if (!mat.wireframe && faceCount > 0) {
       const fi = mesh.faceIndices;
@@ -238,7 +257,8 @@ export class SoftwareEmitter implements EmitContext {
           ny += (poly[a + 2] - poly[b + 2]) * (poly[a] + poly[b]);
           nz += (poly[a] - poly[b]) * (poly[a + 1] + poly[b + 1]);
         }
-        if (nx * cx + ny * cy + nz * cz >= 0) {
+        const flipped = nx * cx + ny * cy + nz * cz >= 0;
+        if (flipped) {
           if (mat.side === "front") {
             this.culled++;
             continue;
@@ -247,9 +267,12 @@ export class SoftwareEmitter implements EmitContext {
           ny = -ny;
           nz = -nz;
         }
-
+        const depth = sortMode === "object" ? objectDepth : cz;
         let style: number;
-        if (simple || (!lit && !lighting.fog)) {
+        if (corners) {
+          if (this.smoothFace(styles, mat, m, corners, start, n, flipped, minZ < near, layer, depth)) continue;
+          style = this.fineStyle(styles, this.smoothFlatKey);
+        } else if (simple || (!lit && !lighting.fog)) {
           let level = SHADE_LEVELS - 1;
           if (lit) {
             const len = Math.hypot(nx, ny, nz) || 1;
@@ -277,7 +300,7 @@ export class SoftwareEmitter implements EmitContext {
           screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
           screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
         }
-        q.pushPolygon(layer, style, sortMode === "object" ? objectDepth : cz, screen, count);
+        q.pushPolygon(layer, style, depth, screen, count);
       }
     }
 
@@ -623,7 +646,178 @@ export class SoftwareEmitter implements EmitContext {
       g = styles.baseG + (l.fogG - styles.baseG) * f;
       b = styles.baseB + (l.fogB - styles.baseB) * f;
     }
-    const key = quantize(r, g, b);
+    return this.lutStyle(styles, quantize(r, g, b));
+  }
+
+  /**
+   * Gouraud shading for one face: lights every corner with its smooth normal. Faces whose corners all
+   * quantize to one color, or that cross the near plane, return false and are drawn flat (in that color,
+   * or the average). The rest are fanned into triangles filled with linear gradients, which reproduce
+   * the interpolated color exactly when the corner colors lie on a line in RGB (one light color over one
+   * base color) and approximate it along the strongest color change otherwise.
+   */
+  private smoothFace(
+    styles: MeshStyles,
+    mat: Material,
+    m: Mat4,
+    corners: Float32Array,
+    start: number,
+    n: number,
+    flipped: boolean,
+    clipped: boolean,
+    layer: number,
+    depth: number,
+  ): boolean {
+    if (this.cornerKey.length < n) {
+      this.cornerColor = new Float64Array(n * 6);
+      this.cornerKey = new Int32Array(n * 2);
+      this.cornerScreen = new Float64Array(n * 4);
+    }
+    const color = this.cornerColor;
+    const keys = this.cornerKey;
+    const poly = this.poly;
+    const l = this.lighting;
+    const sign = flipped ? -1 : 1;
+    let uniform = true;
+    let ar = 0;
+    let ag = 0;
+    let ab = 0;
+    for (let k = 0; k < n; k++) {
+      const c = (start + k) * 3;
+      const x = corners[c];
+      const y = corners[c + 1];
+      const z = corners[c + 2];
+      let vx = (m[0] * x + m[4] * y + m[8] * z) * sign;
+      let vy = (m[1] * x + m[5] * y + m[9] * z) * sign;
+      let vz = (m[2] * x + m[6] * y + m[10] * z) * sign;
+      const len = Math.hypot(vx, vy, vz) || 1;
+      vx /= len;
+      vy /= len;
+      vz /= len;
+      l.shade(vx, vy, vz, poly[k * 3], poly[k * 3 + 1], poly[k * 3 + 2], styles.baseR, styles.baseG, styles.baseB, mat.specular, mat.shininess, styles.emR, styles.emG, styles.emB);
+      color[k * 3] = l.r;
+      color[k * 3 + 1] = l.g;
+      color[k * 3 + 2] = l.b;
+      ar += l.r;
+      ag += l.g;
+      ab += l.b;
+      keys[k] = quantizeFine(l.r, l.g, l.b);
+      if (keys[k] !== keys[0]) uniform = false;
+    }
+    if (uniform || clipped) {
+      // Leave the face to the flat path, shaded with this color
+      this.smoothFlatKey = uniform ? keys[0] : quantizeFine(ar / n, ag / n, ab / n);
+      return false;
+    }
+
+    const p = this.proj;
+    const screen = this.cornerScreen;
+    for (let k = 0; k < n; k++) {
+      const z = poly[k * 3 + 2];
+      screen[k * 2] = p.cx + (p.sx * poly[k * 3]) / z;
+      screen[k * 2 + 1] = p.cy - (p.sy * poly[k * 3 + 1]) / z;
+    }
+    const average = this.fineStyle(styles, quantizeFine(ar / n, ag / n, ab / n));
+    for (let k = 1; k + 1 < n; k++) this.gradientTriangle(styles, average, layer, depth, 0, k, k + 1);
+    return true;
+  }
+
+  /** One triangle of corners a, b, c of the current smooth face. */
+  private gradientTriangle(styles: MeshStyles, style: number, layer: number, depth: number, a: number, b: number, c: number): void {
+    const keys = this.cornerKey;
+    const s = this.cornerScreen;
+    const tri = this.tri;
+    tri[0] = s[a * 2];
+    tri[1] = s[a * 2 + 1];
+    tri[2] = s[b * 2];
+    tri[3] = s[b * 2 + 1];
+    tri[4] = s[c * 2];
+    tri[5] = s[c * 2 + 1];
+    if (keys[a] === keys[b] && keys[a] === keys[c]) {
+      this.queue.pushPolygon(layer, this.fineStyle(styles, keys[a]), depth, tri, 3);
+      return;
+    }
+
+    // The gradient runs between the two most different corners; the third is placed along that axis
+    const dab = this.colorDistance(a, b);
+    const dac = this.colorDistance(a, c);
+    const dbc = this.colorDistance(b, c);
+    let from = a;
+    let to = b;
+    let best = dab;
+    if (dac > best) {
+      to = c;
+      best = dac;
+    }
+    if (dbc > best) {
+      from = b;
+      to = c;
+      best = dbc;
+    }
+    const line = this.gradientLine;
+    const t0 = this.alongAxis(a, from, to, best);
+    const t1 = this.alongAxis(b, from, to, best);
+    const t2 = this.alongAxis(c, from, to, best);
+    if (!triangleGradient(tri[0], tri[1], t0, tri[2], tri[3], t1, tri[4], tri[5], t2, line)) {
+      this.queue.pushPolygon(layer, style, depth, tri, 3);
+      return;
+    }
+
+    // Grow the triangle around its center to hide seams
+    const mx = (tri[0] + tri[2] + tri[4]) / 3;
+    const my = (tri[1] + tri[3] + tri[5]) / 3;
+    for (let k = 0; k < 6; k += 2) {
+      const ex = tri[k] - mx;
+      const ey = tri[k + 1] - my;
+      const len = Math.hypot(ex, ey);
+      if (len > 0) {
+        tri[k] += (ex / len) * SEAM;
+        tri[k + 1] += (ey / len) * SEAM;
+      }
+    }
+    this.queue.pushGradientPolygon(layer, style, depth, tri, 3, line[0], line[1], line[2], line[3], keys[from], keys[to]);
+  }
+
+  /** Style of a fine (6-bit) color key, from a lookup table shared by alike materials. */
+  private fineStyle(styles: MeshStyles, key: number): number {
+    let lut = styles.fineLut;
+    if (!lut) {
+      const shared = `fine|${styles.lutKey}`;
+      lut = this.luts.get(shared) ?? null;
+      if (!lut) {
+        lut = new Int32Array(1 << 18).fill(-1);
+        this.luts.set(shared, lut);
+      }
+      styles.fineLut = lut;
+    }
+    let id = lut[key];
+    if (id < 0) {
+      id = this.queue.styles.intern(fineCss(key), styles.edgeCss, styles.lineWidth, styles.opacity);
+      lut[key] = id;
+    }
+    return id;
+  }
+
+  private colorDistance(u: number, v: number): number {
+    const c = this.cornerColor;
+    const dr = c[v * 3] - c[u * 3];
+    const dg = c[v * 3 + 1] - c[u * 3 + 1];
+    const db = c[v * 3 + 2] - c[u * 3 + 2];
+    return dr * dr + dg * dg + db * db;
+  }
+
+  /** Position of corner k's color along the axis from corner `from` to `to` (0..1). */
+  private alongAxis(k: number, from: number, to: number, length2: number): number {
+    const c = this.cornerColor;
+    const v =
+      ((c[k * 3] - c[from * 3]) * (c[to * 3] - c[from * 3]) +
+        (c[k * 3 + 1] - c[from * 3 + 1]) * (c[to * 3 + 1] - c[from * 3 + 1]) +
+        (c[k * 3 + 2] - c[from * 3 + 2]) * (c[to * 3 + 2] - c[from * 3 + 2])) /
+      length2;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  }
+
+  private lutStyle(styles: MeshStyles, key: number): number {
     let id = styles.lut[key];
     if (id < 0) {
       id = this.queue.styles.intern(quantizedCss(key), styles.edgeCss, styles.lineWidth, styles.opacity);
@@ -709,6 +903,8 @@ export class SoftwareEmitter implements EmitContext {
       emB: em ? em.b / 255 : 0,
       edgeCss,
       lut,
+      fineLut: null,
+      lutKey,
       lineFog: null,
       lineFogCss: "",
     };

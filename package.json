@@ -25,7 +25,8 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm test && npm run build",
     "perf": "vitest run --config vitest.perf.config.mts",
-    "perf:baseline": "vitest run --config vitest.perf.config.mts --mode baseline"
+    "perf:baseline": "vitest run --config vitest.perf.config.mts --mode baseline",
+    "perf:rebaseline": "vitest run --config vitest.perf.config.mts --mode rebaseline"
   },
   "repository": {
     "type": "git",

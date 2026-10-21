@@ -1,41 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { Rasterizer, type Canvas2DLike } from "../../src/rendering/canvas2d/rasterizer.js";
+import { Rasterizer } from "../../src/rendering/canvas2d/rasterizer.js";
+import { RecordingContext } from "../helpers/recordingContext.js";
 import { RenderQueue } from "../../src/rendering/software/renderQueue.js";
 import { Layer } from "../../src/scene/nodes.js";
-
-class RecordingContext implements Canvas2DLike {
-  fillStyle: string | CanvasGradient | CanvasPattern = "#000";
-  strokeStyle: string | CanvasGradient | CanvasPattern = "#000";
-  lineWidth = 1;
-  globalAlpha = 1;
-  calls: string[] = [];
-  styleWrites = 0;
-
-  beginPath(): void {
-    this.calls.push("beginPath");
-  }
-  moveTo(): void {
-    this.calls.push("moveTo");
-  }
-  lineTo(): void {
-    this.calls.push("lineTo");
-  }
-  closePath(): void {
-    this.calls.push("closePath");
-  }
-  arc(): void {
-    this.calls.push("arc");
-  }
-  rect(): void {
-    this.calls.push("rect");
-  }
-  fill(): void {
-    this.calls.push("fill");
-  }
-  stroke(): void {
-    this.calls.push("stroke");
-  }
-}
 
 describe("Rasterizer", () => {
   it("issues one beginPath and one fill per batch", () => {

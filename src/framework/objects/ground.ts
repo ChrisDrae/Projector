@@ -1,4 +1,5 @@
 import { PlaneCollider } from "../../physics/colliders.js";
+import type { MaterialOptions } from "../../scene/material.js";
 import { Mesh } from "../../scene/mesh.js";
 import { Layer, MeshNode } from "../../scene/nodes.js";
 import { SimObject } from "../simObject.js";
@@ -15,6 +16,8 @@ export interface GroundOptions {
   color?: string;
   opacity?: number;
   lineWidth?: number;
+  /** Further material settings, e.g. smooth shading so point lights leave soft pools on a plane. */
+  material?: MaterialOptions;
   /** A physics floor bodies rest on. Default true; false makes it decoration only. */
   collider?: boolean;
   restitution?: number;
@@ -41,6 +44,7 @@ export class Ground extends SimObject {
         color: options.color ?? "#d618c6",
         opacity: options.opacity ?? 0.35,
         lineWidth: options.lineWidth,
+        ...options.material,
       }),
     );
     this.node.layer = Layer.Background;

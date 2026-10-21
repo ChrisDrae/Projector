@@ -290,3 +290,21 @@ export function quantizedCss(key: number): string {
   const ch = (v: number): number => Math.round((v * 255) / 31);
   return `rgb(${ch((key >> 10) & 31)}, ${ch((key >> 5) & 31)}, ${ch(key & 31)})`;
 }
+
+function level6(x: number): number {
+  return x <= 0 ? 0 : x >= 1 ? 63 : Math.round(x * 63);
+}
+
+/**
+ * 6 bits per channel: the finer key smooth shading uses, where neighboring faces blend into each other
+ * and 5-bit steps would show as seams in dark tones.
+ */
+export function quantizeFine(r: number, g: number, b: number): number {
+  return (level6(r) << 12) | (level6(g) << 6) | level6(b);
+}
+
+/** CSS color of a fine key. */
+export function fineCss(key: number): string {
+  const ch = (v: number): number => Math.round((v * 255) / 63);
+  return `rgb(${ch((key >> 12) & 63)}, ${ch((key >> 6) & 63)}, ${ch(key & 63)})`;
+}

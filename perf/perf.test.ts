@@ -7,9 +7,12 @@ import { scenarios } from "./scenarios/index.js";
 
 /**
  * Performance guardrail. `npm run perf` times every demo scenario and fails when a median is more than
- * 20% (+ 0.05 ms) slower than perf/baseline.json, or when steady-state allocation grows. `npm run
- * perf:baseline` re-records the baseline and the deterministic work counters in perf/budgets.json
- * (checked by tests/budgets in `npm test`).
+ * 20% (+ 0.05 ms) slower than perf/baseline.json, or when steady-state allocation grows.
+ *
+ * `npm run perf:baseline` records scenarios that have no baseline yet (new demos), keeping the existing
+ * entries: the guardrail keeps measuring against the implementation they were recorded on. `npm run
+ * perf:rebaseline` re-records everything. Both also write the deterministic work counters to
+ * perf/budgets.json (checked by tests/budgets in `npm test`).
  */
 
 const FRAMES = 600;
@@ -43,7 +46,8 @@ interface ProfileNode {
 
 const baselineFile = new URL("./baseline.json", import.meta.url);
 const budgetsFile = new URL("./budgets.json", import.meta.url);
-const updating = import.meta.env.MODE === "baseline";
+const mode = import.meta.env.MODE;
+const updating = mode === "baseline" || mode === "rebaseline";
 const machine = `${os.cpus()[0]?.model.trim() ?? "unknown cpu"} · ${os.cpus().length} threads · node ${process.version}`;
 const session = new Session();
 
@@ -98,10 +102,17 @@ async function run(scenario: Scenario): Promise<Result> {
   return { ...measure(scenario, FRAMES), allocKBPerFrame: await allocation(scenario) };
 }
 
-const baseline: Baseline | null =
-  !updating && existsSync(baselineFile) ? (JSON.parse(readFileSync(baselineFile, "utf8")) as Baseline) : null;
-const recorded: Baseline = { machine, recorded: new Date().toISOString(), frames: FRAMES, scenarios: {} };
-const budgets: Budgets = { frames: BUDGET_FRAMES, scenarios: {} };
+const existing: Baseline | null = existsSync(baselineFile)
+  ? (JSON.parse(readFileSync(baselineFile, "utf8")) as Baseline)
+  : null;
+const existingBudgets: Budgets | null = existsSync(budgetsFile)
+  ? (JSON.parse(readFileSync(budgetsFile, "utf8")) as Budgets)
+  : null;
+const baseline: Baseline | null = updating ? null : existing;
+// Adding new scenarios keeps every recorded entry
+const keep = mode === "baseline";
+const recorded: Baseline = keep && existing ? existing : { machine, recorded: new Date().toISOString(), frames: FRAMES, scenarios: {} };
+const budgets: Budgets = keep && existingBudgets ? existingBudgets : { frames: BUDGET_FRAMES, scenarios: {} };
 
 describe("performance", () => {
   beforeAll(() => {
@@ -114,6 +125,7 @@ describe("performance", () => {
 
   for (const scenario of scenarios) {
     it(scenario.name, { timeout: 120_000 }, async () => {
+      if (keep && recorded.scenarios[scenario.name] && budgets.scenarios[scenario.name]) return;
       let now = await run(scenario);
       const base = baseline?.scenarios[scenario.name];
       if (base && regressions(now, base).length > 0) now = best(now, await run(scenario));
