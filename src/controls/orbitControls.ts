@@ -14,6 +14,18 @@ export interface OrbitControlsOptions {
 const forward: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
+ * Puts the camera on a sphere around `target`, looking at it: yaw turns around the vertical, pitch > 0
+ * looks up. The math of OrbitControls without the DOM, for headless simulations and scripted cameras.
+ */
+export function placeOrbitCamera(camera: PerspectiveCamera, target: Vec3, distance: number, yaw: number, pitch: number): void {
+  camera.setYawPitch(yaw, pitch);
+  camera.getForward(forward);
+  camera.position.x = target.x - forward.x * distance;
+  camera.position.y = target.y - forward.y * distance;
+  camera.position.z = target.z - forward.z * distance;
+}
+
+/**
  * Orbits the camera around a target: drag to rotate, mouse wheel to zoom. With yaw = pitch = 0 the camera
  * sits on the -z side of the target looking along +z, like the original fixed camera.
  */
@@ -65,12 +77,7 @@ export class OrbitControls {
     const limit = Math.PI / 2 - 0.01;
     this.pitch = Math.max(-limit, Math.min(limit, this.pitch));
     this.distance = Math.max(this.minDistance, Math.min(this.maxDistance, this.distance));
-    const cam = this.camera;
-    cam.setYawPitch(this.yaw, this.pitch);
-    cam.getForward(forward);
-    cam.position.x = this.target.x - forward.x * this.distance;
-    cam.position.y = this.target.y - forward.y * this.distance;
-    cam.position.z = this.target.z - forward.z * this.distance;
+    placeOrbitCamera(this.camera, this.target, this.distance, this.yaw, this.pitch);
   }
 
   dispose(): void {

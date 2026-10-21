@@ -18,10 +18,12 @@ export type { MaterialOptions, Side } from "./scene/material.js";
 export { AmbientLight, DirectionalLight, lambert } from "./scene/light.js";
 export { Layer, LineSet, MeshNode, PointCloud, SphereCloud } from "./scene/nodes.js";
 export type {
+  CustomNode,
   LineSetOptions,
   PointCloudOptions,
   PointSource,
   SphereCloudOptions,
+  SortMode,
   SphereSource,
 } from "./scene/nodes.js";
 export { Scene } from "./scene/scene.js";
@@ -36,6 +38,7 @@ export type { Canvas2DBackendOptions } from "./rendering/canvas2d/canvas2dBacken
 export { Rasterizer } from "./rendering/canvas2d/rasterizer.js";
 export type { Canvas2DLike } from "./rendering/canvas2d/rasterizer.js";
 export { SoftwareEmitter, SHADE_LEVELS } from "./rendering/software/emit.js";
+export type { EmitContext } from "./rendering/software/emit.js";
 export { PrimitiveKind, RenderQueue, StyleTable } from "./rendering/software/renderQueue.js";
 export type { Style } from "./rendering/software/renderQueue.js";
 export {
@@ -79,7 +82,7 @@ export { integratePositions, integrateVelocities } from "./physics/integrate.js"
 export { KeyboardState } from "./controls/keyboard.js";
 export { PointerDrag } from "./controls/pointerDrag.js";
 export type { PointerDragOptions } from "./controls/pointerDrag.js";
-export { OrbitControls } from "./controls/orbitControls.js";
+export { OrbitControls, placeOrbitCamera } from "./controls/orbitControls.js";
 export type { OrbitControlsOptions } from "./controls/orbitControls.js";
 
 // Utilities

@@ -2,7 +2,8 @@ import * as mat4 from "../../math/mat4.js";
 import type { Mat4 } from "../../math/mat4.js";
 import type { PerspectiveCamera } from "../../scene/camera.js";
 import type { Material } from "../../scene/material.js";
-import type { LineSet, MeshNode, PointCloud, SphereCloud } from "../../scene/nodes.js";
+import type { Mesh } from "../../scene/mesh.js";
+import { Layer, type LineSet, type MeshNode, type PointCloud, type SortMode, type SphereCloud } from "../../scene/nodes.js";
 import type { Scene } from "../../scene/scene.js";
 import { mix, parseColor, shade, toCss, type RGB } from "../color.js";
 import { clipPolygonNear, clipSegmentNear } from "./clip.js";
@@ -29,15 +30,41 @@ interface CloudStyles {
 }
 
 /**
+ * What a CustomNode draws with. Everything is in world space; the context transforms to view space,
+ * clips against the near plane, projects and submits batched primitives, like the built-in nodes.
+ */
+export interface EmitContext {
+  readonly camera: PerspectiveCamera;
+  readonly proj: ProjectionParams;
+  readonly queue: RenderQueue;
+  /** Interns a style and returns its id. Ids are stable, so look them up once and keep them. */
+  style(fill: string | null, stroke?: string | null, lineWidth?: number, alpha?: number): number;
+  /** Draws a mesh with a world matrix, shaded and culled like a MeshNode. */
+  drawMesh(mesh: Mesh, material: Material, world: Mat4, layer?: number, sortMode?: SortMode): void;
+  /** Polygon from n xyz triplets, unshaded. Returns false when it was culled. */
+  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number): boolean;
+  line3D(layer: number, style: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean;
+  /** Sphere of radius r drawn as a perspective-sized circle. */
+  circle3D(layer: number, style: number, x: number, y: number, z: number, r: number): boolean;
+  /** Screen position of a world point in `out`; returns its view depth, or -1 behind the near plane. */
+  project(x: number, y: number, z: number, out: { x: number; y: number }): number;
+  /** Lambert brightness in [0, 1] of a world-space unit normal under the scene lights. */
+  brightness(nx: number, ny: number, nz: number): number;
+}
+
+/**
  * The software pipeline in front of a 2D rasterizer. For every node it transforms to view space, culls
  * back faces and anything behind the camera, clips against the near plane, shades faces, projects with
  * x' = x / z, y' = y / z and submits the result to a RenderQueue.
  */
-export class SoftwareEmitter {
+export class SoftwareEmitter implements EmitContext {
   readonly queue: RenderQueue;
   readonly proj: ProjectionParams = createProjection();
   culled: number = 0;
+  /** The camera of the frame being emitted (set by begin()). */
+  camera!: PerspectiveCamera;
   private readonly modelView: Mat4 = mat4.create();
+  private readonly world: Mat4 = mat4.create();
   private view: Float64Array = new Float64Array(3 * 256);
   private poly: Float64Array = new Float64Array(3 * 16);
   private clipped: Float64Array = new Float64Array(3 * 32);
@@ -75,6 +102,9 @@ export class SoftwareEmitter {
         case "lines":
           this.emitLines(node, camera);
           break;
+        case "custom":
+          node.emit(this);
+          break;
       }
     }
   }
@@ -83,6 +113,7 @@ export class SoftwareEmitter {
   begin(scene: Scene, camera: PerspectiveCamera, width: number, height: number): void {
     this.queue.reset();
     this.culled = 0;
+    this.camera = camera;
     camera.updateMatrices();
     updateProjection(this.proj, camera, width, height);
     if (scene.background !== this.backgroundCss) {
@@ -107,14 +138,30 @@ export class SoftwareEmitter {
     }
   }
 
-  emitMesh(node: MeshNode, camera: PerspectiveCamera): void {
-    const mesh = node.mesh;
-    const mat = node.material;
+  emitMesh(node: MeshNode, camera: PerspectiveCamera = this.camera): void {
+    const local = node.transform.updateMatrix();
+    const world = node.parentMatrix ? mat4.multiply(this.world, node.parentMatrix, local) : local;
+    this.meshAt(node.mesh, node.material, world, camera, node.layer, node.sortMode);
+  }
+
+  drawMesh(mesh: Mesh, material: Material, world: Mat4, layer: number = Layer.World, sortMode: SortMode = "face"): void {
+    this.meshAt(mesh, material, world, this.camera, layer, sortMode);
+  }
+
+  private meshAt(
+    mesh: Mesh,
+    mat: Material,
+    world: Mat4,
+    camera: PerspectiveCamera,
+    layer: number,
+    sortMode: SortMode,
+  ): void {
     const q = this.queue;
     const p = this.proj;
     const near = p.near;
-    const layer = node.layer;
-    const m = mat4.multiply(this.modelView, camera.viewMatrix, node.transform.updateMatrix());
+    const m = mat4.multiply(this.modelView, camera.viewMatrix, world);
+    // Object sorting: every face at the depth of the origin (a convex mesh never overlaps itself)
+    const objectDepth = sortMode === "object" ? m[14] : NaN;
 
     const vc = mesh.vertexCount;
     if (this.view.length < vc * 3) this.view = new Float64Array(vc * 6);
@@ -193,7 +240,7 @@ export class SoftwareEmitter {
         let level = SHADE_LEVELS - 1;
         if (mat.flatShading) {
           const len = Math.hypot(nx, ny, nz) || 1;
-          level = Math.round(this.brightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
+          level = Math.round(this.viewBrightness(nx / len, ny / len, nz / len) * (SHADE_LEVELS - 1));
         }
 
         let src = poly;
@@ -212,7 +259,7 @@ export class SoftwareEmitter {
           screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
           screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
         }
-        q.pushPolygon(layer, styles.faces[level], cz, screen, count);
+        q.pushPolygon(layer, styles.faces[level], sortMode === "object" ? objectDepth : cz, screen, count);
       }
     }
 
@@ -394,8 +441,116 @@ export class SoftwareEmitter {
     }
   }
 
+  style(fill: string | null, stroke: string | null = null, lineWidth: number = 1, alpha: number = 1): number {
+    return this.queue.styles.intern(fill, stroke, lineWidth, alpha);
+  }
+
+  polygon3D(layer: number, style: number, xyz: ArrayLike<number>, n: number): boolean {
+    if (n < 3) return false;
+    this.ensurePolygonCapacity(n);
+    const v = this.camera.viewMatrix;
+    const p = this.proj;
+    const poly = this.poly;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let cz = 0;
+    for (let k = 0; k < n; k++) {
+      const x = xyz[k * 3];
+      const y = xyz[k * 3 + 1];
+      const z = xyz[k * 3 + 2];
+      const vz = v[2] * x + v[6] * y + v[10] * z + v[14];
+      poly[k * 3] = v[0] * x + v[4] * y + v[8] * z + v[12];
+      poly[k * 3 + 1] = v[1] * x + v[5] * y + v[9] * z + v[13];
+      poly[k * 3 + 2] = vz;
+      cz += vz;
+      if (vz < minZ) minZ = vz;
+      if (vz > maxZ) maxZ = vz;
+    }
+    if (maxZ < p.near) {
+      this.culled++;
+      return false;
+    }
+    let src = poly;
+    let count = n;
+    if (minZ < p.near) {
+      count = clipPolygonNear(p.near, poly, n, this.clipped);
+      src = this.clipped;
+      if (count < 3) {
+        this.culled++;
+        return false;
+      }
+    }
+    const screen = this.screen;
+    for (let k = 0; k < count; k++) {
+      const z = src[k * 3 + 2];
+      screen[k * 2] = p.cx + (p.sx * src[k * 3]) / z;
+      screen[k * 2 + 1] = p.cy - (p.sy * src[k * 3 + 1]) / z;
+    }
+    this.queue.pushPolygon(layer, style, cz / n, screen, count);
+    return true;
+  }
+
+  line3D(layer: number, style: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+    const v = this.camera.viewMatrix;
+    const p = this.proj;
+    const seg = this.seg;
+    seg[0] = v[0] * ax + v[4] * ay + v[8] * az + v[12];
+    seg[1] = v[1] * ax + v[5] * ay + v[9] * az + v[13];
+    seg[2] = v[2] * ax + v[6] * ay + v[10] * az + v[14];
+    seg[3] = v[0] * bx + v[4] * by + v[8] * bz + v[12];
+    seg[4] = v[1] * bx + v[5] * by + v[9] * bz + v[13];
+    seg[5] = v[2] * bx + v[6] * by + v[10] * bz + v[14];
+    if (!clipSegmentNear(p.near, seg)) {
+      this.culled++;
+      return false;
+    }
+    this.queue.pushLine(
+      layer,
+      style,
+      (seg[2] + seg[5]) / 2,
+      p.cx + (p.sx * seg[0]) / seg[2],
+      p.cy - (p.sy * seg[1]) / seg[2],
+      p.cx + (p.sx * seg[3]) / seg[5],
+      p.cy - (p.sy * seg[4]) / seg[5],
+    );
+    return true;
+  }
+
+  circle3D(layer: number, style: number, x: number, y: number, z: number, r: number): boolean {
+    const v = this.camera.viewMatrix;
+    const p = this.proj;
+    const vz = v[2] * x + v[6] * y + v[10] * z + v[14];
+    if (vz - r <= p.near) {
+      this.culled++;
+      return false;
+    }
+    const vx = v[0] * x + v[4] * y + v[8] * z + v[12];
+    const vy = v[1] * x + v[5] * y + v[9] * z + v[13];
+    this.queue.pushCircle(layer, style, vz, p.cx + (p.sx * vx) / vz, p.cy - (p.sy * vy) / vz, (p.sy * r) / vz);
+    return true;
+  }
+
+  project(x: number, y: number, z: number, out: { x: number; y: number }): number {
+    const v = this.camera.viewMatrix;
+    const p = this.proj;
+    const vz = v[2] * x + v[6] * y + v[10] * z + v[14];
+    if (!(vz > p.near)) return -1;
+    out.x = p.cx + (p.sx * (v[0] * x + v[4] * y + v[8] * z + v[12])) / vz;
+    out.y = p.cy - (p.sy * (v[1] * x + v[5] * y + v[9] * z + v[13])) / vz;
+    return vz;
+  }
+
+  brightness(nx: number, ny: number, nz: number): number {
+    const v = this.camera.viewMatrix;
+    return this.viewBrightness(
+      v[0] * nx + v[4] * ny + v[8] * nz,
+      v[1] * nx + v[5] * ny + v[9] * nz,
+      v[2] * nx + v[6] * ny + v[10] * nz,
+    );
+  }
+
   /** Lambert brightness for a unit view-space normal. */
-  private brightness(nx: number, ny: number, nz: number): number {
+  private viewBrightness(nx: number, ny: number, nz: number): number {
     let sum = this.ambient;
     const d = this.lightDir;
     for (let l = 0; l < this.lightCount; l++) {

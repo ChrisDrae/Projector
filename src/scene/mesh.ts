@@ -15,8 +15,18 @@ export class Mesh {
   edges: Uint32Array;
   /** Unit normal (xyz) per face, in mesh space. */
   faceNormals: Float32Array;
+  /**
+   * Unit normal (xyz) per face corner, parallel to faceIndices: the smooth surface normal for Gouraud
+   * shading. Corners only average the faces around their vertex that meet within the crease angle, so
+   * hard edges (a cylinder's rim) stay sharp without duplicating vertices. Built by computeCornerNormals().
+   */
+  cornerNormals: Float32Array | null = null;
   /** Bumped by markDirty() when positions change. */
   version: number = 0;
+  private cornerVersion: number = -1;
+  private creaseCos: number = 0.5;
+  private vertexFaceStart: Uint32Array | null = null;
+  private vertexFaces: Uint32Array | null = null;
 
   constructor(positions: ArrayLike<number>, faces: ArrayLike<number>[] = [], edges?: ArrayLike<number>) {
     this.positions = positions instanceof Float32Array ? positions : Float32Array.from(positions);
@@ -109,6 +119,71 @@ export class Mesh {
   markDirty(): void {
     this.version++;
     this.computeFaceNormals();
+  }
+
+  /**
+   * Smooth normals per face corner (see cornerNormals). Faces meeting at more than `creaseAngle`
+   * (radians) keep a hard edge. Recomputed only when the mesh changed since the last call.
+   */
+  computeCornerNormals(creaseAngle: number = Math.PI / 3): Float32Array {
+    const creaseCos = Math.cos(creaseAngle);
+    if (this.cornerNormals && this.cornerVersion === this.version && this.creaseCos === creaseCos) {
+      return this.cornerNormals;
+    }
+    this.creaseCos = creaseCos;
+    this.cornerVersion = this.version;
+    const fi = this.faceIndices;
+    const fs = this.faceStart;
+    const fn = this.faceNormals;
+    if (!this.vertexFaces) this.buildVertexFaces();
+    const vfStart = this.vertexFaceStart!;
+    const vf = this.vertexFaces!;
+    const out = this.cornerNormals ?? new Float32Array(fi.length * 3);
+    this.cornerNormals = out;
+
+    for (let f = 0; f < this.faceCount; f++) {
+      const ax = fn[f * 3];
+      const ay = fn[f * 3 + 1];
+      const az = fn[f * 3 + 2];
+      for (let k = fs[f]; k < fs[f + 1]; k++) {
+        const v = fi[k];
+        let nx = 0;
+        let ny = 0;
+        let nz = 0;
+        for (let a = vfStart[v]; a < vfStart[v + 1]; a++) {
+          const g = vf[a];
+          const bx = fn[g * 3];
+          const by = fn[g * 3 + 1];
+          const bz = fn[g * 3 + 2];
+          if (ax * bx + ay * by + az * bz >= creaseCos) {
+            nx += bx;
+            ny += by;
+            nz += bz;
+          }
+        }
+        const len = Math.hypot(nx, ny, nz) || 1;
+        out[k * 3] = nx / len;
+        out[k * 3 + 1] = ny / len;
+        out[k * 3 + 2] = nz / len;
+      }
+    }
+    return out;
+  }
+
+  /** Vertex -> faces adjacency (CSR), built once: the topology never changes, only positions. */
+  private buildVertexFaces(): void {
+    const n = this.vertexCount;
+    const start = new Uint32Array(n + 1);
+    const fi = this.faceIndices;
+    for (let k = 0; k < fi.length; k++) start[fi[k] + 1]++;
+    for (let v = 0; v < n; v++) start[v + 1] += start[v];
+    const fill = start.slice(0, n);
+    const faces = new Uint32Array(fi.length);
+    for (let f = 0; f < this.faceCount; f++) {
+      for (let k = this.faceStart[f]; k < this.faceStart[f + 1]; k++) faces[fill[fi[k]]++] = f;
+    }
+    this.vertexFaceStart = start;
+    this.vertexFaces = faces;
   }
 
   /** Axis-aligned box centered at the origin. */
@@ -209,6 +284,141 @@ export class Mesh {
       if (n[f * 3] * cx + n[f * 3 + 1] * cy + n[f * 3 + 2] * cz < 0) face.reverse();
     }
     return new Mesh(positions, faces);
+  }
+
+  /** Cylinder along y, centered at the origin, with flat caps (one polygon each). */
+  static cylinder(radius: number, height: number, segments: number = 16): Mesh {
+    const h = height / 2;
+    return Mesh.lathe([radius, h, radius, -h], segments, false);
+  }
+
+  /**
+   * Capsule along y, centered at the origin: a cylinder of length 2 * halfHeight capped by hemispheres,
+   * the same shape as a physics capsule of that radius and half height.
+   */
+  static capsule(radius: number, halfHeight: number, segments: number = 16, rings: number = 4): Mesh {
+    const profile: number[] = [];
+    for (let j = 1; j <= rings; j++) {
+      const a = (Math.PI / 2) * (j / rings);
+      profile.push(radius * Math.sin(a), halfHeight + radius * Math.cos(a));
+    }
+    for (let j = 0; j < rings; j++) {
+      const a = Math.PI / 2 + (Math.PI / 2) * (j / rings);
+      profile.push(radius * Math.sin(a), -halfHeight + radius * Math.cos(a));
+    }
+    return Mesh.lathe(profile, segments, true, halfHeight + radius, -halfHeight - radius);
+  }
+
+  /** Sphere from a subdivided icosahedron: evenly sized triangles, good for smooth shading. */
+  static icosphere(radius: number, subdivisions: number = 2): Mesh {
+    const t = (1 + Math.sqrt(5)) / 2;
+    // prettier-ignore
+    const pts: number[] = [
+      -1, t, 0,   1, t, 0,   -1, -t, 0,   1, -t, 0,
+      0, -1, t,   0, 1, t,   0, -1, -t,   0, 1, -t,
+      t, 0, -1,   t, 0, 1,   -t, 0, -1,   -t, 0, 1,
+    ];
+    // prettier-ignore
+    let faces: number[][] = [
+      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+    ];
+    for (let s = 0; s < subdivisions; s++) {
+      const mid = new Map<number, number>();
+      const midpoint = (a: number, b: number): number => {
+        const key = a < b ? a * 1e6 + b : b * 1e6 + a;
+        let m = mid.get(key);
+        if (m === undefined) {
+          m = pts.length / 3;
+          pts.push((pts[a * 3] + pts[b * 3]) / 2, (pts[a * 3 + 1] + pts[b * 3 + 1]) / 2, (pts[a * 3 + 2] + pts[b * 3 + 2]) / 2);
+          mid.set(key, m);
+        }
+        return m;
+      };
+      const next: number[][] = [];
+      for (const [a, b, c] of faces) {
+        const ab = midpoint(a, b);
+        const bc = midpoint(b, c);
+        const ca = midpoint(c, a);
+        next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+      }
+      faces = next;
+    }
+    for (let i = 0; i < pts.length; i += 3) {
+      const len = Math.hypot(pts[i], pts[i + 1], pts[i + 2]);
+      pts[i] = (pts[i] / len) * radius;
+      pts[i + 1] = (pts[i + 1] / len) * radius;
+      pts[i + 2] = (pts[i + 2] / len) * radius;
+    }
+    return new Mesh(pts, Mesh.outward(pts, faces));
+  }
+
+  /**
+   * Surface of revolution around y. `profile` holds (ring radius, y) pairs from top to bottom. With
+   * poles, the ends close in a point at topY / bottomY; without, each end is one flat polygon.
+   */
+  private static lathe(profile: number[], segments: number, poles: boolean, topY = 0, bottomY = 0): Mesh {
+    const rings = profile.length / 2;
+    const positions: number[] = [];
+    const first = poles ? 1 : 0;
+    if (poles) positions.push(0, topY, 0);
+    for (let j = 0; j < rings; j++) {
+      const r = profile[j * 2];
+      const y = profile[j * 2 + 1];
+      for (let i = 0; i < segments; i++) {
+        const phi = (2 * Math.PI * i) / segments;
+        positions.push(r * Math.cos(phi), y, r * Math.sin(phi));
+      }
+    }
+    const bottom = positions.length / 3;
+    if (poles) positions.push(0, bottomY, 0);
+
+    const at = (j: number, i: number): number => first + j * segments + (i % segments);
+    const faces: number[][] = [];
+    for (let j = 0; j + 1 < rings; j++) {
+      for (let i = 0; i < segments; i++) faces.push([at(j, i), at(j, i + 1), at(j + 1, i + 1), at(j + 1, i)]);
+    }
+    if (poles) {
+      for (let i = 0; i < segments; i++) {
+        faces.push([0, at(0, i + 1), at(0, i)]);
+        faces.push([bottom, at(rings - 1, i), at(rings - 1, i + 1)]);
+      }
+    } else {
+      const top: number[] = [];
+      const base: number[] = [];
+      for (let i = 0; i < segments; i++) {
+        top.push(at(0, i));
+        base.push(at(rings - 1, i));
+      }
+      faces.push(top, base);
+    }
+    return new Mesh(positions, Mesh.outward(positions, faces));
+  }
+
+  /** Winds every face of a shape that is convex around the origin so its normal points away from it. */
+  private static outward(p: ArrayLike<number>, faces: number[][]): number[][] {
+    for (const face of faces) {
+      let nx = 0;
+      let ny = 0;
+      let nz = 0;
+      let cx = 0;
+      let cy = 0;
+      let cz = 0;
+      for (let k = 0; k < face.length; k++) {
+        const a = face[k] * 3;
+        const b = face[(k + 1) % face.length] * 3;
+        nx += (p[a + 1] - p[b + 1]) * (p[a + 2] + p[b + 2]);
+        ny += (p[a + 2] - p[b + 2]) * (p[a] + p[b]);
+        nz += (p[a] - p[b]) * (p[a + 1] + p[b + 1]);
+        cx += p[a];
+        cy += p[a + 1];
+        cz += p[a + 2];
+      }
+      if (nx * cx + ny * cy + nz * cz < 0) face.reverse();
+    }
+    return faces;
   }
 
   /** Line segments through the points: consecutive pairs, or a connected strip. */

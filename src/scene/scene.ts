@@ -1,7 +1,7 @@
 import { AmbientLight, DirectionalLight } from "./light.js";
-import type { LineSet, MeshNode, PointCloud, SphereCloud } from "./nodes.js";
+import type { CustomNode, LineSet, MeshNode, PointCloud, SphereCloud } from "./nodes.js";
 
-export type SceneNode = MeshNode | SphereCloud | PointCloud | LineSet;
+export type SceneNode = MeshNode | SphereCloud | PointCloud | LineSet | CustomNode;
 
 export interface SceneOptions {
   background?: string;

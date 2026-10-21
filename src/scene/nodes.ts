@@ -1,12 +1,22 @@
+import type { Mat4 } from "../math/mat4.js";
 import { Transform } from "../math/transform.js";
+import type { EmitContext } from "../rendering/software/emit.js";
 import { Material, type MaterialOptions } from "./material.js";
 import type { Mesh } from "./mesh.js";
 
 /**
  * Render layers are drawn in order. Only the World layer is depth sorted (painter's algorithm);
- * the others are grouped by style for the fewest draw calls.
+ * the others are grouped by style for the fewest draw calls. Shadow holds projected shadows: above
+ * the floor, below everything standing on it.
  */
-export const Layer = { Background: 0, World: 1, Overlay: 2 } as const;
+export const Layer = { Background: 0, Shadow: 1, World: 2, Overlay: 3 } as const;
+
+/**
+ * How faces are ordered in the depth-sorted layer. "face" sorts every face by its own center (right for
+ * open or concave meshes). "object" gives all faces the depth of the node's origin, which keeps convex
+ * objects such as boxes in a stack from cutting into each other.
+ */
+export type SortMode = "face" | "object";
 
 export class MeshNode {
   readonly kind: "mesh" = "mesh";
@@ -14,6 +24,11 @@ export class MeshNode {
   material: Material;
   /** Can be shared with a physics collider (e.g. BoxContainer.transform). */
   transform: Transform;
+  /** World matrix of a parent (scene graph); the node's transform is then relative to it. */
+  parentMatrix: Mat4 | null = null;
+  sortMode: SortMode = "face";
+  castShadow: boolean = false;
+  receiveShadow: boolean = false;
   visible: boolean = true;
   layer: number = Layer.World;
 
@@ -143,4 +158,16 @@ export class LineSet {
     p[o + 4] = by;
     p[o + 5] = bz;
   }
+}
+
+/**
+ * A node that draws itself: the extension point for new kinds of 3D objects. `emit` runs once per frame
+ * and submits primitives through the context (meshes, 3D polygons, lines and circles that are
+ * transformed, clipped, projected and batched like the built-in nodes).
+ */
+export interface CustomNode {
+  readonly kind: "custom";
+  visible: boolean;
+  layer: number;
+  emit(ctx: EmitContext): void;
 }

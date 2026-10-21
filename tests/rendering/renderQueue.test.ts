@@ -38,7 +38,7 @@ describe("RenderQueue", () => {
     q.pushCircle(Layer.World, q.styles.intern("#fff"), 2, 0, 0, 1);
     q.sort();
     const layers = Array.from(q.order.subarray(0, q.count)).map((i) => q.layer[i]);
-    expect(layers).toEqual([0, 0, 0, 1, 2]);
+    expect(layers).toEqual([Layer.Background, Layer.Background, Layer.Background, Layer.World, Layer.Overlay]);
     // background: the two "a" lines are adjacent
     expect(batches(q).map((x) => x.size)).toEqual([2, 1, 1, 1]);
   });
