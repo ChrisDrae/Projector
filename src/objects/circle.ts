@@ -82,29 +82,6 @@ class Circle implements CircleProps{
         this.acceleration.y = 0;
         this.acceleration.z = 0;
     }
-
-    
-  addKeycontrol(): void {
-    window.addEventListener("keydown", (event: KeyboardEvent) => {
-      const step = 0.1;
-
-      switch (event.key) {
-        case "ArrowUp":
-          this.translate({ x: 0, y: 0, z: -step });
-          break;
-        case "ArrowDown":
-          this.translate({ x: 0, y: 0, z: step });
-          break;
-        case "ArrowLeft":
-          this.translate({ x: step, y: 0, z: 0 });
-          break;
-        case "ArrowRight":
-          this.translate({ x: -step, y: 0, z: 0 });
-          break;
-      }
-    });
-  }
-
 }
 
 export default Circle

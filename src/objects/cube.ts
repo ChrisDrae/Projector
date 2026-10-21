@@ -123,52 +123,6 @@ export class Cube {
     };
 }
 
-  addKeycontrol(): void {
-    window.addEventListener("keydown", (event: KeyboardEvent) => {
-      const step = 0.1;
-
-      switch (event.key) {
-        case "ArrowUp":
-          this.translate({ x: 0, y: -step, z: 0 });
-          break;
-        case "ArrowDown":
-          this.translate({ x: 0, y: step, z: 0 });
-          break;
-        case "ArrowLeft":
-          this.translate({ x: step, y: 0, z: 0 });
-          break;
-        case "ArrowRight":
-          this.translate({ x: -step, y: 0, z: 0 });
-          break;
-      }
-    });
-  }
-
-  addMouseDragRotate(): void {
-    let isDragging = false;
-    let lastMouseX = 0;
-    let lastMouseY = 0;
-    const sensitivity = 0.01;
-
-    window.addEventListener("mousedown", (e: MouseEvent) => {
-      isDragging = true;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-    });
-
-    window.addEventListener("mouseup", () => {
-      isDragging = false;
-    });
-
-    window.addEventListener("mousemove", (e: MouseEvent) => {
-      if (!isDragging) return;
-      const dx = e.clientX - lastMouseX;
-      const dy = e.clientY - lastMouseY;
-      this.rotate({ x: dy * sensitivity, y: dx * sensitivity, z: 0 });
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-    });
-  }
   // world-space points, computed on read — this is what the renderer should consume
   get points(): Vec[] {
     return this.localPoints.map((p) =>
