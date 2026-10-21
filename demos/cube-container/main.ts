@@ -1,70 +1,127 @@
-﻿import { Layer, Mesh, MeshNode, PointerDrag, SphereCloud } from "projector";
-import { Cube } from "../../src/objects/cube.js";
-import Circle from "../../src/objects/circle.js";
-import { CollisionSystem } from "../../src/physics/collision.js";
-import { SpatialGrid } from "../../src/utility/partitioning.js";
+﻿import {
+  BoxContainer,
+  Layer,
+  Mesh,
+  MeshNode,
+  PointerDrag,
+  Random,
+  SphereCloud,
+  World,
+  quat,
+  vec3,
+} from "projector";
 import { createDemo } from "../shared/setup.js";
+
+const RADIUS = 0.003;
+const BOX_SIZE = 0.5;
+const BOX_POSITION = { x: 0, y: 0.4, z: 0.2 };
+/** Radians of spin per dragged pixel. */
+const SPIN = 0.01;
+const MOVE_SPEED = 1;
 
 const demo = createDemo({
   title: "Cube container",
-  help: "Left drag: spin the box · Arrows: move it\nRight drag: orbit · Wheel: zoom",
+  help: "Left drag: spin the box · Arrows, PgUp/PgDn: move it\nRight drag: orbit · Wheel: zoom",
   background: "#333131",
-  orbit: { button: 2, distance: 1.5 },
+  orbit: { button: 2, target: { x: 0, y: 0.3, z: 0.2 }, distance: 1.5, pitch: -0.3 },
 });
 
-const cubi = new Cube(0.5, { x: 0, y: 0.4, z: 0.2 });
+const world = new World({ gravity: { x: 0, y: -9.8, z: 0 }, restitution: 0.3, friction: 0.05 });
+const box = world.addCollider(
+  new BoxContainer({ size: BOX_SIZE, position: { ...BOX_POSITION }, maxTransferSpeed: 6 }),
+);
 
-const circles: Array<Circle> = [];
-const Radius = 0.003;
-const h = cubi.dimension / 2;
-const amount = 1000;
+const rnd = new Random(1);
+const local = vec3.create();
+const spawnAt = vec3.create();
+const ORIGIN = vec3.create();
 
-for (let i = 0; i < amount; i++) {
-  const x = cubi.position.x + (Math.random() * 2 - 1) * (h - Radius);
-  const y = cubi.position.y + (Math.random() * 2 - 1) * (h - Radius);
-  const z = cubi.position.z + (Math.random() * 2 - 1) * (h - Radius);
-  circles[i] = new Circle({ x, y, z }, Radius);
+function spawn(count: number): void {
+  const h = box.halfExtents.x - RADIUS;
+  for (let i = 0; i < count; i++) {
+    rnd.inBox(local, ORIGIN, h);
+    box.transform.toWorld(spawnAt, local);
+    world.addBody({ position: spawnAt, radius: RADIUS, mass: 1 });
+  }
 }
 
-const grid = new SpatialGrid(Radius * 2);
-
-// Temporary adapter: copy the old objects into render buffers each frame
-const spheres = {
-  count: amount,
-  pos: new Float32Array(amount * 3),
-  radius: new Float32Array(amount).fill(Radius),
-};
-// prettier-ignore
-const cubeEdges = [0, 2, 2, 1, 1, 3, 3, 0, 4, 6, 6, 5, 5, 7, 7, 4, 0, 4, 3, 7, 2, 6, 1, 5];
-const boxMesh = new Mesh(new Float32Array(24), [], cubeEdges);
+function reset(): void {
+  world.bodies.clear();
+  Object.assign(box.transform.position, BOX_POSITION);
+  quat.identity(box.transform.rotation);
+  box.cacheAxes();
+  vec3.set(box.angularVelocity, 0, 0, 0);
+  spawn(1000);
+}
+reset();
 
 const floor = demo.scene.add(new MeshNode(Mesh.grid(2, 16), { color: "#d618c6", opacity: 0.35 }));
 floor.layer = Layer.Background;
-demo.scene.add(new SphereCloud(spheres, { color: "rgb(160, 212, 91)" }));
-demo.scene.add(new MeshNode(boxMesh, { color: "#d618c6", wireframe: true, lineWidth: 2 }));
+// The cloud reads positions and radii straight from the physics arrays: no copying
+demo.scene.add(new SphereCloud(world.bodies, { color: "rgb(160, 212, 91)" }));
+// The mesh shares the container's transform, so it moves and spins with it
+demo.scene.add(
+  new MeshNode(Mesh.box(BOX_SIZE), { color: "#d618c6", wireframe: true, lineWidth: 2 }, box.transform),
+);
 
-const sensitivity = 0.01;
-new PointerDrag(demo.canvas, (dx, dy) => cubi.rotate({ x: -dy * sensitivity, y: dx * sensitivity, z: 0 }));
+const drag = { x: 0, y: 0 };
+new PointerDrag(demo.canvas, (dx, dy) => {
+  drag.x += dx;
+  drag.y += dy;
+});
+
+let shake = 0;
+const hud = demo.hud;
+const buttons = hud.row();
+hud.button("+1000 spheres", () => spawn(1000), buttons);
+hud.button("Shake", () => (shake = 0.6), buttons);
+hud.button("Reset", reset, buttons);
+hud.slider("time scale", 0.1, 2, 0.05, world.timeScale, (v) => (world.timeScale = v));
+hud.slider("restitution", 0, 1, 0.05, world.restitution, (v) => (world.restitution = v));
+
+const right = vec3.create();
+const up = vec3.create();
+const forward = vec3.create();
 
 demo.start((dt) => {
-  const speed = 0.8 * dt;
-  const k = demo.keyboard;
-  cubi.translate({ x: k.axis("ArrowLeft", "ArrowRight") * speed, y: k.axis("ArrowDown", "ArrowUp") * speed, z: 0 });
+  demo.camera.getRight(right);
+  demo.camera.getUp(up);
+  demo.camera.getForward(forward);
 
-  for (const c of circles) {
-    c.applyForce({ x: 0, y: -9.8 * c.mass, z: 0 });
-    c.integrate(dt);
+  // Dragging spins the box around the camera's axes at the speed of the drag; released, the spin decays
+  const w = box.angularVelocity;
+  if (drag.x !== 0 || drag.y !== 0) {
+    const k = SPIN / Math.max(dt, 1e-3);
+    w.x = -(up.x * drag.x + right.x * drag.y) * k;
+    w.y = -(up.y * drag.x + right.y * drag.y) * k;
+    w.z = -(up.z * drag.x + right.z * drag.y) * k;
+    drag.x = 0;
+    drag.y = 0;
+  } else {
+    vec3.scale(w, w, Math.exp(-4 * dt));
   }
-  CollisionSystem.resolveAll(circles, cubi, grid, 0.3);
 
-  for (let i = 0; i < amount; i++) {
-    const c = circles[i].center;
-    spheres.pos[i * 3] = c.x;
-    spheres.pos[i * 3 + 1] = c.y;
-    spheres.pos[i * 3 + 2] = c.z;
+  // Arrow keys move the box relative to the view, so it always goes the way you press
+  const kb = demo.keyboard;
+  const ax = kb.axis("ArrowLeft", "ArrowRight");
+  const ay = kb.axis("ArrowDown", "ArrowUp");
+  const az = kb.axis("PageDown", "PageUp");
+  const v = box.linearVelocity;
+  vec3.set(v, 0, 0, 0);
+  vec3.scaleAndAdd(v, v, right, ax * MOVE_SPEED);
+  vec3.scaleAndAdd(v, v, up, ay * MOVE_SPEED);
+  vec3.scaleAndAdd(v, v, forward, az * MOVE_SPEED);
+  if (shake > 0) {
+    shake -= dt;
+    vec3.scaleAndAdd(v, v, right, Math.sin(shake * 45) * 2.5);
   }
-  const pts = cubi.points;
-  for (let i = 0; i < 8; i++) boxMesh.setVertex(i, pts[i].x, pts[i].y, pts[i].z);
 
-  demo.hud.stat("spheres", amount);
+  world.step(dt);
+
+  const s = world.stats;
+  hud.stat("bodies", s.bodies);
+  hud.stat("substeps", s.substeps);
+  hud.stat("physics ms", s.stepMs);
+  hud.stat("contact pairs", s.pairs);
+  hud.stat("max bucket", world.broadphase.stats.maxBucket);
 });

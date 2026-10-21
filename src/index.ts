@@ -48,6 +48,28 @@ export {
 export type { ProjectionParams } from "./rendering/software/projection.js";
 export { clipPolygonNear, clipSegmentNear } from "./rendering/software/clip.js";
 
+// Physics
+export { World } from "./physics/world.js";
+export type { StepStats, WorldOptions } from "./physics/world.js";
+export { BodyStore } from "./physics/bodyStore.js";
+export type { FloatArray } from "./physics/bodyStore.js";
+export { BodyFlags } from "./physics/types.js";
+export type {
+  BodyId,
+  BodyOptions,
+  Collider,
+  Constraint,
+  ForceGenerator,
+  Precision,
+  SolverSettings,
+} from "./physics/types.js";
+export { BoxContainer, PlaneCollider, SphereCollider } from "./physics/colliders.js";
+export type { BoxContainerOptions, ColliderMaterial, SphereColliderOptions } from "./physics/colliders.js";
+export { HashGrid } from "./physics/broadphase.js";
+export type { BroadphaseOptions, BroadphaseStats } from "./physics/broadphase.js";
+export { solveContacts } from "./physics/contacts.js";
+export { integratePositions, integrateVelocities } from "./physics/integrate.js";
+
 // Controls
 export { KeyboardState } from "./controls/keyboard.js";
 export { PointerDrag } from "./controls/pointerDrag.js";
