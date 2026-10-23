@@ -1,0 +1,117 @@
+:root {
+  --page: rgb(100, 198, 223);
+  --panel: rgba(28, 27, 27, 0.82);
+  --text: #f1eeee;
+  --muted: #b9b3b3;
+  --accent: #d618c6;
+  --leaf: rgb(160, 212, 91);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--page);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+}
+
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  min-width: 230px;
+  max-width: calc(100vw - 24px);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: none;
+}
+
+#hud:empty {
+  display: none;
+}
+
+#hud h1 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#hud h1 a {
+  color: var(--muted);
+  text-decoration: none;
+  margin-right: 6px;
+}
+
+#hud .help {
+  margin: 0 0 8px;
+  color: var(--muted);
+  white-space: pre-line;
+}
+
+#hud .stats {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 12px;
+  margin-bottom: 8px;
+}
+
+#hud .stats span:nth-child(even) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#hud .controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#hud .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+#hud label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#hud input[type="range"] {
+  width: 110px;
+}
+
+#hud button,
+#hud select {
+  font: inherit;
+  color: var(--text);
+  background: #3c3a3a;
+  border: 1px solid #5a5656;
+  border-radius: 5px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+#hud button:hover,
+#hud select:hover {
+  border-color: var(--accent);
+}

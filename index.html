@@ -1,12 +1,112 @@
 <!DOCTYPE html>
-<canvas id="canvas"></canvas>
-<style>
-    body {
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Projector</title>
+    <style>
+      body {
         margin: 0;
+        min-height: 100vh;
         display: flex;
         justify-content: center;
         align-items: center;
         background-color: rgb(100, 198, 223);
-    }
-</style>
-<script type="module" src="./dist/index.js"></script>
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      main {
+        width: min(720px, calc(100vw - 32px));
+        padding: 28px;
+        border-radius: 12px;
+        background: #333131;
+        color: #f1eeee;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 28px;
+      }
+
+      p {
+        margin: 0 0 20px;
+        color: #b9b3b3;
+      }
+
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      a {
+        display: block;
+        padding: 12px 14px;
+        border-radius: 8px;
+        border: 1px solid #5a5656;
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:hover {
+        border-color: #d618c6;
+      }
+
+      a strong {
+        display: block;
+        color: rgb(160, 212, 91);
+      }
+
+      a span {
+        color: #b9b3b3;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Projector</h1>
+      <p>Canvas 2D rendering and physics simulation demos.</p>
+      <ul>
+        <li>
+          <a href="./demos/cube-container/">
+            <strong>Cube container</strong>
+            <span>Thousands of spheres inside a box you can spin and throw around.</span>
+          </a>
+        </li>
+        <li>
+          <a href="./demos/gravitation/">
+            <strong>Gravitation</strong>
+            <span>N-body attraction with collisions: a disk of bodies orbiting a heavy core.</span>
+          </a>
+        </li>
+        <li>
+          <a href="./demos/cloth/">
+            <strong>Cloth</strong>
+            <span>Distance-constrained particles in Perlin noise wind, flat shaded.</span>
+          </a>
+        </li>
+        <li>
+          <a href="./demos/rigid-bodies/">
+            <strong>Rigid bodies</strong>
+            <span>A box pyramid, capsules and balls with friction, stacking and sleeping. Click to throw things at it.</span>
+          </a>
+        </li>
+        <li>
+          <a href="./demos/lighting/">
+            <strong>Lighting</strong>
+            <span>Colored point and spot lights, smooth shading, highlights, planar shadows and fog on a 2D canvas.</span>
+          </a>
+        </li>
+        <li>
+          <a href="./demos/flow-field/">
+            <strong>Flow field</strong>
+            <span>4000 particles carried by an evolving curl-noise field built from 3D Perlin noise.</span>
+          </a>
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>
